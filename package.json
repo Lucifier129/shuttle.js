@@ -4,11 +4,10 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "mocha --require babel-polyfill --compilers babel-register",
-    "build": "rollup -c",
-    "prebuild": "rimraf ./dist",
-    "postbuild": "uglifyjs ./dist/shuttle.js --compress --mangle --comments  --output ./dist/shuttle.min.js",
-    "build:dev": "rollup -c -w"
+    "test": "mocha",
+    "dev": "babel -w src -d lib",
+    "build": "babel src -d lib",
+    "prebuild": "rimraf lib"
   },
   "repository": {
     "type": "git",
@@ -22,19 +21,15 @@
   },
   "homepage": "https://github.com/Lucifier129/shuttle.js#readme",
   "devDependencies": {
-    "babel-plugin-external-helpers": "^6.22.0",
-    "babel-polyfill": "^6.23.0",
-    "babel-preset-es2015-rollup": "^3.0.0",
-    "babel-preset-latest": "^6.24.0",
+    "babel-cli": "^6.26.0",
+    "babel-preset-env": "^1.6.1",
+    "babel-preset-react": "^6.24.1",
     "babel-preset-stage-0": "^6.22.0",
-    "babel-register": "^6.24.0",
     "expect": "^1.20.2",
     "mocha": "^3.2.0",
-    "rimraf": "^2.6.1",
-    "rollup": "^0.41.6",
-    "rollup-plugin-babel": "^2.7.1",
-    "rollup-plugin-license": "^0.3.0",
-    "rollup-plugin-node-resolve": "^2.0.0",
-    "uglify-js": "^2.8.16"
+    "rimraf": "^2.6.1"
+  },
+  "dependencies": {
+    "path-to-regexp": "^2.1.0"
   }
 }
