@@ -1,23 +1,48 @@
 /** @jsx h */
-import pathToRegexp from 'path-to-regexp'
+// import pathToRegexp from "path-to-regexp";
 
-export default {
-  Scheme,
-  Renderer,
-  StaticDOMRenderer,
-  StaticHTMLRenderer,
-}
+// export default {
+//   Scheme,
+//   Renderer,
+//   StaticDOMRenderer,
+//   StaticHTMLRenderer
+// };
 
-class Scheme {
+class Scheme {}
+
+class ElementScheme extends Scheme {
   constructor(type, props, children) {
+    super();
     this.type = type;
     this.props = props;
     this.children = children;
   }
 }
 
+class TextScheme extends Scheme {
+  constructor(text) {
+    super();
+    this.text = text;
+  }
+}
+
+function isScheme(obj) {
+  return obj instanceof Scheme;
+}
+
+function isElementScheme(obj) {
+  return obj instanceof ElementScheme;
+}
+
+function isTextScheme(obj) {
+  return obj instanceof TextScheme;
+}
+
 function h(type, props, ...children) {
-  return new Scheme(type, props, flattenList(children));
+  if (typeof type === "function") {
+    return type({ ...props, children: flattenList(children) });
+  }
+  return new ElementScheme(type, props, flattenList(children));
 }
 
 function flattenList(list, flatList = []) {
@@ -29,10 +54,8 @@ function flattenList(list, flatList = []) {
       continue;
     }
 
-    let isScheme = item instanceof Scheme
-
-    if (!isScheme) {
-      item = new Scheme(null, null, item);
+    if (!isScheme(item)) {
+      item = new TextScheme(item + "");
     }
 
     flatList.push(item);
@@ -41,13 +64,13 @@ function flattenList(list, flatList = []) {
   return flatList;
 }
 
-function createRenderer(scheme, Renderer) {
-  let renderer = new Renderer(scheme);
+function createRenderer(scheme, Renderer, context = {}) {
+  let renderer = new Renderer(scheme, context);
 
-  if (Array.isArray(scheme.children)) {
+  if (isElementScheme(scheme)) {
     let children = [];
     for (let i = 0; i < scheme.children.length; i++) {
-      let current = createRenderer(scheme.children[i], Renderer);
+      let current = createRenderer(scheme.children[i], Renderer, context);
       let isFirst = i === 0;
       if (!isFirst) {
         let previous = children[i - 1];
@@ -65,17 +88,41 @@ function createRenderer(scheme, Renderer) {
 }
 
 class Renderer {
-  constructor(scheme) {
+  constructor(scheme, context) {
     this.scheme = scheme;
-    this.isText = !scheme.type;
+    this.context = context;
     this.parent = null;
     this.previous = null;
     this.next = null;
     this.children = null;
-    this.index = null;
+  }
+  isText() {
+    return isTextScheme(this.scheme);
+  }
+  isElement() {
+    return isElementScheme(this.scheme);
+  }
+  isRoot() {
+    return !this.parent;
+  }
+  isFirst() {
+    return !this.previous;
+  }
+  isLast() {
+    return !this.next;
+  }
+  hasNode() {
+    return !!this.node;
+  }
+  getRoot() {
+    let root = this;
+    while (!root.isRoot()) {
+      root = root.parent;
+    }
+    return root;
   }
   renderText() {
-    return this.text(this.scheme.children);
+    return this.text(this.scheme.text);
   }
   renderProp(key, value) {
     this.propStart();
@@ -110,12 +157,12 @@ class Renderer {
     return this.end(type);
   }
   render() {
-    if (!this.parent) {
+    if (this.isRoot()) {
       this.root();
     }
-    if (this.isText) {
+    if (this.isText()) {
       return this.renderText();
-    } else {
+    } else if (this.isElement()) {
       return this.renderElement();
     }
   }
@@ -136,69 +183,10 @@ class Renderer {
   remove() {}
 }
 
-
-class Server {
-  constructor(state) {
-    this.routes = {}
-    this.state = Object.assign({}, state)
-  }
-  on(name, fn) {
-    if (!Array.isArray(this.routes[name])) {
-      this.routes[name] = []
-    }
-    if (!this.routes[name].includes(fn)) {
-      this.routes[name].push(fn)
-    }
-  }
-  off(name, fn) {
-    if (this.routes.hasOwnProperty(name)) {
-      this.routes[name] = this.routes[name].filter(item => item !== fn)
-    }
-  }
-  update(name, data) {
-    if (typeof data === 'function') {
-      this.state[name] = data(this.state[name])
-    } else {
-      this.state[name] = data
-    }
-    if (this.routes[name]) {
-      this.routes[name].forEach(fn => fn(this.state, data))
-    }
-  }
-  get(name) {
-    return this.state[name]
-  }
-}
-
-class Request {
-  constructor(name) {
-    this.server = server
-    this.name = name
-  }
-  getValue() {
-    return this.server.get(this.name)
-  }
-}
-
-class Response {
-  constructor(name) {
-    this.server = server
-    this.name = name
-  }
-  setValue(value) {
-    return this.server.update(this.name, value)
-  }
-}
-
-let server = new Server({ count: 0 })
-let $ = name => new Request(name)
-let $$ = (name, f) => new Response(name).setValue(f) 
-
 class StaticDOMRenderer extends Renderer {
   constructor(scheme) {
     super(scheme);
     this.node = null;
-    this.observer = {}
   }
   render() {
     if (this.node) {
@@ -207,40 +195,27 @@ class StaticDOMRenderer extends Renderer {
     return super.render();
   }
   text(text) {
-    console.log('text', text)
-    if (text instanceof Request) {
-      let request = text
-      text = request.getValue()
-      request.server.on(request.name, () => {
-        this.node.textContent = request.getValue()
-      })
-    }
-    this.node = document.createTextNode(text + '');
+    this.node = document.createTextNode(text);
     return this.node;
   }
   start(type) {
     this.node = document.createElement(type);
   }
-  prop(key, value) {
-
-    if (value instanceof Request) {
-      let request = value
-      value = request.getValue()
-      request.server.on(request.name, () => {
-        this.prop(key, request.getValue())
-      })
-    }
-
-    if (key === "style") {
-      let style = value;
-      for (let name in style) {
-        this.node.style[name] =
-          typeof style[name] === "number" ? style[name] + "px" : style[name];
+  style(style) {
+    for (let styleName in style) {
+      let styleValue = style[styleName];
+      if (typeof style[styleName] === "number") {
+        styleValue += "px";
       }
-      return;
+      if (styleValue != null && typeof styleValue !== "boolean") {
+        this.node.style[styleName] = styleValue;
+      }
     }
-
-    if (key in this.node) {
+  }
+  prop(key, value) {
+    if (key === "style" && typeof value === "object") {
+      this.style(value);
+    } else if (key in this.node) {
       this.node[key] = value;
     } else {
       this.node.setAttribute(key, value + "");
@@ -272,22 +247,28 @@ class StaticHTMLRenderer extends Renderer {
   start(type) {
     this.html += `<` + this.scheme.type;
   }
-  prop(key, value) {
-    if (key === "style") {
-      let style = value;
-      let list = [];
-      for (let name in style) {
-        let styleName = name.replace(/([A-Z])/g, "-$1").toLowerCase();
-        let item = `${styleName}: ${typeof style[name] === "number"
-          ? style[name] + "px"
-          : style[name]};`;
-        list.push(item);
-      }
-      this.html += " " + `style="${list.join(" ")}"`;
-      return;
-    }
+  style(style) {
+    let list = [];
+    for (let name in style) {
+      let styleName = name.replace(/([A-Z])/g, "-$1").toLowerCase();
+      let styleValue = style[name];
 
-    this.html += " " + `${key}="${value}"`;
+      if (typeof style[name] === "number") {
+        styleValue += "px";
+      }
+
+      if (styleValue != null && typeof styleValue !== "boolean") {
+        list.push(`${styleName}: ${styleValue};`);
+      }
+    }
+    this.prop("style", list.join(" "));
+  }
+  prop(key, value) {
+    if (key === "style" && typeof value === "object") {
+      this.style(value);
+    } else {
+      this.html += " " + `${key}="${value}"`;
+    }
   }
   propsEnd() {
     this.html += ">";
@@ -312,45 +293,67 @@ function StaticApp({ list }) {
   return (
     <ul
       class="list"
-      style={{ width: 300, height: 500, backgroundColor: "pink" }}
+      style="width: 300px; height: 500px; background-color: pink;"
     >
       {list.map((item, index) => {
         return (
-          <li
-            class="item"
-            data-index={index}
-            style={{
-              width: "50%",
-              height: 100,
-              marginBottom: 10,
-              marginLeft: 10,
-              backgroundColor: "rgb(234, 234, 234)"
-            }}
-          >
-            <h2 class="title" style={{ height: 60, color: "red" }}>
-              {item.title}
-            </h2>
-            <p class="description" style={{ height: 40, color: "green" }}>
-              {item.description}
-            </p>
-          </li>
+          <Item index={index}>
+            <Title>{item.title}</Title>
+            <Description>{item.description}</Description>
+          </Item>
         );
       })}
     </ul>
   );
 }
 
+function Item({ index, children }) {
+  return (
+    <li
+      class="item"
+      data-index={index}
+      style={{
+        width: "50%",
+        height: 100,
+        marginBottom: 10,
+        marginLeft: 10,
+        backgroundColor: "rgb(234, 234, 234)"
+      }}
+    >
+      {children}
+    </li>
+  );
+}
+
+function Title({ children }) {
+  return (
+    <h2 class="title" style={{ height: 60, color: "red" }}>
+      {children}
+    </h2>
+  );
+}
+
+function Description({ children }) {
+  return (
+    <p class="description" style={{ height: 40, color: "green" }}>
+      {children}
+    </p>
+  );
+}
+
 function CountApp() {
   return (
     <div>
-      <h1 data-count={$('count')}>Count: {$('count')}|{$('count')}|{$('count')}|{$('count')}</h1>
-      <button onclick={() => $$('count', count => count + 1)}>+1</button>
-      <button onclick={() => $$('count', count => count - 1)}>-1</button>
+      <h1 data-count={connect(state => state.count)}>
+        Count: {$("count")}|{$("count")}|{$("count")}|{$("count")}
+      </h1>
+      <button onclick={() => $$("count", count => count + 1)}>+1</button>
+      <button onclick={() => $$("count", count => count - 1)}>-1</button>
     </div>
-  )
+  );
 }
 
-let appScheme = CountApp(state);
+let appScheme = StaticApp(state);
 
 let htmlRenderer = createRenderer(appScheme, StaticHTMLRenderer);
 let domRenderer = createRenderer(appScheme, StaticDOMRenderer);
