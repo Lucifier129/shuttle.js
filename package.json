@@ -1,35 +1,34 @@
 {
   "name": "shuttle.js",
-  "version": "0.0.1",
-  "description": "",
+  "version": "1.0.0",
+  "description": "Two-way communication for JavaScript",
   "main": "index.js",
   "scripts": {
-    "test": "mocha",
-    "dev": "babel -w src -d lib",
-    "build": "babel src -d lib",
-    "prebuild": "rimraf lib"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/Lucifier129/shuttle.js.git"
+    "dev": "babel --watch src --out-dir lib",
+    "build": "webpack --watch --env.development",
+    "build:prod": "webpack --env.production",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/Lucifier129/shuttle.js/issues"
-  },
-  "homepage": "https://github.com/Lucifier129/shuttle.js#readme",
   "devDependencies": {
-    "babel-cli": "^6.26.0",
-    "babel-preset-env": "^1.6.1",
-    "babel-preset-react": "^6.24.1",
-    "babel-preset-stage-0": "^6.22.0",
-    "expect": "^1.20.2",
-    "mocha": "^3.2.0",
-    "rimraf": "^2.6.1"
+    "@babel/cli": "^7.0.0-beta.42",
+    "@babel/core": "^7.0.0-beta.42",
+    "@babel/plugin-proposal-pipeline-operator": "^7.0.0-beta.42",
+    "@babel/preset-env": "^7.0.0-beta.42",
+    "@babel/preset-react": "^7.0.0-beta.44",
+    "@babel/preset-stage-0": "^7.0.0-beta.44",
+    "babel-loader": "^8.0.0-beta.2",
+    "webpack": "^4.4.1",
+    "webpack-cli": "^2.0.13"
   },
   "dependencies": {
-    "path-to-regexp": "^2.1.0"
+    "immer": "^1.2.0",
+    "path-to-regexp": "^2.2.0",
+    "react": "^16.3.1",
+    "react-dom": "^16.3.1",
+    "redux": "^3.7.2",
+    "wobble": "^1.5.0"
   }
 }

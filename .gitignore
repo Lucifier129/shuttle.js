@@ -3,4 +3,5 @@
 node_modules
 coverage
 _book
-lib
+_site
+.publish
