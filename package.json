@@ -1,13 +1,13 @@
 {
   "name": "shuttle.js",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Two-way communication for JavaScript",
-  "main": "index.js",
+  "main": "lib/index.js",
   "scripts": {
-    "dev": "babel --watch src --out-dir lib",
-    "build": "webpack --watch --env.development",
-    "build:prod": "webpack --env.production",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "babel src --out-dir lib",
+    "example:dev": "webpack --watch --env.development",
+    "example:build": "webpack --env.production",
+    "test": "jest"
   },
   "keywords": [],
   "author": "",
@@ -20,15 +20,15 @@
     "@babel/preset-react": "^7.0.0-beta.44",
     "@babel/preset-stage-0": "^7.0.0-beta.44",
     "babel-loader": "^8.0.0-beta.2",
-    "webpack": "^4.4.1",
-    "webpack-cli": "^2.0.13"
-  },
-  "dependencies": {
     "immer": "^1.2.0",
+    "jest": "^22.4.3",
     "path-to-regexp": "^2.2.0",
     "react": "^16.3.1",
     "react-dom": "^16.3.1",
     "redux": "^3.7.2",
+    "webpack": "^4.4.1",
+    "webpack-cli": "^2.0.13",
     "wobble": "^1.5.0"
-  }
+  },
+  "dependencies": {}
 }
