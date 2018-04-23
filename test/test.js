@@ -56,7 +56,7 @@ test('filter operator', done => {
     |> start
 })
 
-test('customer action', done => {
+test('custom action', done => {
   const DOWN = Symbol('down')
   const MOVE = Symbol('move')
   const UP = Symbol('up')

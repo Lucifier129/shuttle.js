@@ -4,6 +4,10 @@ export const guard = callback => {
   let isStarted = false
   let isFinished = false
   let guarder = (type, payload) => {
+    if (!isStarted && type !== START) {
+      let message = `source should be started before action: ${type}`
+      throw new Error(message)
+    }
     if (isFinished) return
     if (isStarted && type === START) return
     if (type === START) isStarted = true
