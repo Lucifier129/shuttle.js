@@ -24,7 +24,7 @@ module.exports = (env, argv) => {
 		},
 		resolve: {
 			alias: {
-				'shuttle.js': path.resolve(__dirname, 'src')
+				sukkula: path.resolve(__dirname, 'src')
 			}
 		}
 	}

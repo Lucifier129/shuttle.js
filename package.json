@@ -1,17 +1,24 @@
 {
 	"name": "sukkula",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Two-way communication for JavaScript",
 	"main": "lib/index.js",
+	"homepage": "https://github.com/Lucifier129/sukkula",
 	"scripts": {
 		"build": "babel src --out-dir lib",
+		"prebuild": "rimraf ./lib",
 		"example:dev": "webpack --watch --env.development",
 		"example:build": "webpack --env.production",
 		"test": "jest"
 	},
-	"keywords": [],
-	"author": "",
-	"license": "ISC",
+	"files": ["dist/", "lib/", "LICENSE"],
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/Lucifier129/sukkula.git"
+	},
+	"keywords": ["reactive", "two-way communication", "state manager"],
+	"author": "https://github.com/Lucifier129",
+	"license": "MIT",
 	"devDependencies": {
 		"@babel/cli": "^7.0.0-beta.42",
 		"@babel/core": "^7.0.0-beta.42",
@@ -29,6 +36,7 @@
 		"react-dom": "^16.3.1",
 		"redux": "^3.7.2",
 		"regenerator-runtime": "^0.11.1",
+		"rimraf": "^2.6.2",
 		"webpack": "^4.4.1",
 		"webpack-cli": "^2.0.13",
 		"wobble": "^1.5.0"
