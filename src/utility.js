@@ -1,5 +1,7 @@
 import { START, NEXT, FINISH, ASYNC, ERROR } from './constant'
 
+export const pipe = (...args) => args.reduce((result, f) => f(result))
+
 export const guard = callback => {
 	let isStarted = false
 	let isFinished = false
