@@ -333,22 +333,6 @@ test('takeLast operator: multiple', done => {
 		|> start
 })
 
-test('switchMapLast operator', done => {
-	let list1 = [6, 7, 8, 9, 10]
-	let list2 = list1.concat().reverse()
-	fromRange(0, 10)
-		|> takeLast(5)
-		|> onNext(n => expect(n).toBe(list1.shift()))
-		|> switchMapLast(n => fromRange(n, list2[list2.length - 1], -1))
-		|> onNext(n => expect(n).toBe(list2.shift()))
-		|> onFinish(() => {
-			expect(list1.length).toBe(0)
-			expect(list2.length).toBe(0)
-			done()
-		})
-		|> start
-})
-
 test('then operator', done => {
 	let list1 = [6, 7, 8, 9, 10]
 	let list2 = list1.concat().reverse()

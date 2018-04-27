@@ -1,40 +1,50 @@
+
+const START = 0
+const NEXT = 1
+const FINISH = 2
+const ASYNC = 3
+
 const pipe = (...args) => args.reduce((result, f) => f(result))
-
-const identity = x => x
-
-const from = value => sink => sink(value)
-
-const map = f => source => sink => source(value => sink(f(value)))
-
-const apply = sourceA => sourceB => sink => sourceA(value => sourceB(f => sink(f(value))))
-
-const then = f => source => sink => map(f)(source)(nextSource => nextSource(sink))
-
-const fromArray = array => sink => array.forEach(value => sink(value))
+const bind = f => source => sink => source((type, payload) => f(sink, type, payload))
+const run = f => source => {
+	let callback = source((type, payload) => {
+		if (type === START) {
+			callback(NEXT)
+		} else if (type === NEXT) {
+			f(payload)
+			callback(NEXT)
+		}
+	})
+	callback(START)
+	return callback
+}
 
 const interval = period => sink => {
+	let timer
 	let i = 0
-	let id = setInterval(() => sink(i++), period)
-	return () => {
-		clearInterval(id)
+	return (type, payload) => {
+		if (type === START) {
+			timer = setInterval(() => sink(NEXT, i++), period)
+			sink(START)
+		} else if (type === FINISH) {
+			clearInterval(timer)
+			sink(FINISH)
+		} else if (type === NEXT) {
+			sink(ASYNC)
+		} else {
+			sink(type, payload)
+		}
 	}
 }
 
-const run = f => source =>
-	source(value => {
-		f(value)
-		return value
-	})
-
-let stop = pipe(
+pipe(
 	interval(100),
-	// from(2),
-	// fromArray([1, 2, 3, 4]),
-	map(x => x + 1),
-	map(x => y => x + y),
-	apply(from(2)),
-	then(x => from(x * 2)),
-	run(x => console.log('x', x))
+	bind((sink, type, payload) => {
+		if (type === NEXT) {
+			sink(type, payload + 1)
+		} else {
+			sink(type, payload)
+		}
+	}),
+	run(x => console.log(x))
 )
-
-setTimeout(stop, 3000)
