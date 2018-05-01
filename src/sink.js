@@ -1,4 +1,4 @@
-import { START, NEXT, FINISH, ASYNC, ERROR } from './constant'
+import { START, NEXT, FINISH, ERROR } from './constant'
 import { guard, log } from './utility'
 
 export const onType = theType => handler => source => sink => {
@@ -14,15 +14,13 @@ export const onType = theType => handler => source => sink => {
 export const onStart = onType(START)
 export const onNext = onType(NEXT)
 export const onFinish = onType(FINISH)
-export const onAsync = onType(ASYNC)
 export const onError = onType(ERROR)
 
-export const observe = ({ start, next, finish, async, error }) => source =>
+export const observe = ({ start, next, finish, error }) => source =>
   source
   |> onStart(start)
   |> onNext(next)
   |> onFinish(finish)
-  |> onAsync(async)
   |> onError(error)
 
 export const toCallback = source => {

@@ -1,4 +1,4 @@
-import { START, NEXT, FINISH, ASYNC } from './constant'
+import { START, NEXT, FINISH } from './constant'
 import { guard, log } from './utility'
 
 export const empty = sink => {
@@ -25,7 +25,7 @@ export const interval = period => sink => {
 			clearInterval(timer)
 			sink(FINISH)
 		} else if (type === NEXT) {
-			sink(ASYNC)
+			return
 		} else {
 			sink(type, payload)
 		}
@@ -85,7 +85,7 @@ export const fromAction = actionType => sink => {
 		if (type === actionType) {
 			sink(NEXT, payload)
 		} else if (type === NEXT) {
-			sink(ASYNC)
+			return
 		} else {
 			sink(type, payload)
 		}

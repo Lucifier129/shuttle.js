@@ -1,4 +1,4 @@
-import { START, NEXT, FINISH, ASYNC } from './constant'
+import { START, NEXT, FINISH } from './constant'
 import { guard, log, logValue } from './utility'
 import { empty, fromRange, fromAction, fromArray } from './source'
 import { toCallback, start, observe } from './sink'
@@ -115,7 +115,7 @@ export const takeLast = (count = 1) => source => sink => {
 		fromAction(NEXT_OF_TAKE_LAST)
 		|> onFinish(() => (outerFinished = true))
 		|> bind((type, payload) => {
-			if (type !== NEXT && type !== ASYNC) {
+			if (type !== NEXT) {
 				innerCallback(type, payload)
 			}
 		})
@@ -139,7 +139,7 @@ export const merge = (...sourceList) => sink => {
 			callbackList = sourceList.map(source => source |> onNext(next) |> onFinish(finish) |> start)
 			sink(START)
 		} else if (type === NEXT) {
-			sink(ASYNC)
+			return
 		} else if (type === FINISH) {
 			callbackList.forEach(callback => callback(FINISH))
 			sink(FINISH)
@@ -172,7 +172,7 @@ export const combine = (...sourceList) => sink => {
 			callbackList.forEach(callback => callback(START))
 			sink(START)
 		} else if (type === NEXT) {
-			sink(ASYNC)
+			return
 		} else if (type === FINISH) {
 			callbackList.forEach(callback => callback(FINISH))
 			sink(FINISH)
@@ -278,7 +278,7 @@ export const share = source => {
 				if (isFinished) {
 					sink(FINISH)
 				} else {
-					sink(ASYNC)
+					return
 				}
 			} else if (type === FINISH) {
 				let index = list.indexOf(sink)
@@ -309,7 +309,7 @@ export const takeUntil = until$ => source => sink => {
 			innerCallback(FINISH)
 			sink(FINISH)
 		} else {
-			if (type !== NEXT && type !== ASYNC) {
+			if (type !== NEXT) {
 				innerCallback && innerCallback(type, payload)
 			}
 			sink(type, payload)
@@ -366,21 +366,21 @@ export const switchMap = makeSource => source => sink => {
 	return callback
 }
 
-export const startWith = value => source => concat(fromArray(value), source)
+// export const startWith = value => source => concat(fromArray(value), source)
 
-// export const startWith = startValue => source => sink => {
-// 	let sent = false
-// 	let callback = source(sink)
-// 	return guard((type, payload) => {
-// 		if (type === NEXT) {
-// 			if (!sent) {
-// 				sent = true
-// 				sink(NEXT, startValue)
-// 			} else {
-// 				callback(type, payload)
-// 			}
-// 		} else {
-// 			callback(type, payload)
-// 		}
-// 	})
-// }
+export const startWith = startValue => source => sink => {
+	let sent = false
+	let callback = source(sink)
+	return guard((type, payload) => {
+		if (type === NEXT) {
+			if (!sent) {
+				sent = true
+				sink(NEXT, startValue)
+			} else {
+				callback(type, payload)
+			}
+		} else {
+			callback(type, payload)
+		}
+	})
+}

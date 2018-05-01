@@ -1,7 +1,7 @@
-import { START, NEXT, FINISH, ASYNC, ERROR } from '../src/constant'
+import { START, NEXT, FINISH, ERROR } from '../src/constant'
 import { guard, log, logValue } from '../src/utility'
 import { interval, fromArray, fromRange } from '../src/source'
-import { onType, onStart, onNext, onFinish, onAsync, start } from '../src/sink'
+import { onType, onStart, onNext, onFinish, start } from '../src/sink'
 import {
 	map,
 	filter,
@@ -23,8 +23,7 @@ test('check letant value', () => {
 	expect(START).toBe(0)
 	expect(NEXT).toBe(1)
 	expect(FINISH).toBe(2)
-	expect(ASYNC).toBe(3)
-	expect(ERROR).toBe(4)
+	expect(ERROR).toBe(3)
 })
 
 test('interval source', done => {
@@ -206,7 +205,7 @@ test('custom action', done => {
 			} else if (type === UP) {
 				callback(FINISH)
 			} else if (type === NEXT) {
-				sink(ASYNC)
+				return
 			} else {
 				sink(type, payload)
 			}

@@ -1,4 +1,4 @@
-import { START, NEXT, FINISH, ASYNC, ERROR } from './constant'
+import { START, NEXT, FINISH, ERROR } from './constant'
 
 export const pipe = (...args) => args.reduce((result, f) => f(result))
 
@@ -23,7 +23,7 @@ export const guard = callback => {
 	return guarder
 }
 
-const action = { START, NEXT, FINISH, ASYNC, ERROR }
+const action = { START, NEXT, FINISH, ERROR }
 const getActionName = type => {
 	let target = Object.keys(action).find(name => action[name] === type)
 	return target != null ? target : type
