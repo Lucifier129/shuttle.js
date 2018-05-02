@@ -4,6 +4,17 @@ const NEXT = 1
 const FINISH = 2
 const ASYNC = 3
 
+// source :: sink -> callback
+// source creator :: any -> source a
+// callback :: (type, payload) -> void
+// sink :: (type, payload) -> void
+// source operator :: any -> source a -> source b
+// callack operator :: any -> callback a -> callback b
+// sink operator :: any -> sink a -> sink b
+
+// callback a -> callback b
+// sink a -> sink b
+
 const pipe = (...args) => args.reduce((result, f) => f(result))
 const bind = f => source => sink => source((type, payload) => f(sink, type, payload))
 const run = f => source => {
@@ -18,6 +29,21 @@ const run = f => source => {
 	callback(START)
 	return callback
 }
+
+
+const map = f => callback => (type, payload) => {
+	let result = f({ type, payload })
+	return callback(result.type, result.payload)
+}
+
+const filter = f => callback => (type, payload) => {
+	if (f(type, payload)) {
+		callback(type, payload)
+	}
+}
+
+const concat = (...callback)
+
 
 const interval = period => sink => {
 	let timer
