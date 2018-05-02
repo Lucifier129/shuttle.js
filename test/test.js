@@ -259,15 +259,16 @@ test('custom action', done => {
 // })
 
 // test('switchMap operator: pullable & listenable', done => {
-//   let list = [1, 2, 2, 3, 3, 4]
-//   fromArray([1, 2, 3])
-//     |> switchMap(n => interval(10) |> take(2) |> map(count => count + n) |> logValue('switchMap'))
-//     |> onNext(n => expect(n).toBe(list.shift()))
-//     |> onFinish(() => {
-//       expect(list.length).toBe(0)
-//       done()
-//     })
-//     |> start
+// 	let list = [1, 2, 2, 3, 3, 4]
+
+// 	fromArray([1, 2, 3])
+// 		|> switchMap(n => interval(10) |> take(2) |> map(count => count + n))
+// 		|> onNext(n => expect(n).toBe(list.shift()))
+// 		|> onFinish(() => {
+// 			expect(list.length).toBe(0)
+// 			done()
+// 		})
+// 		|> start
 // })
 
 // test('switchMap operator: last', done => {
@@ -312,24 +313,24 @@ test('startWith operator', done => {
 })
 
 test('takeLast operator: single', done => {
-  fromRange(0, 10)
-    |> takeLast()
-    |> onNext(n => expect(n).toBe(10))
-    |> onFinish(() => {
-      done()
-    })
-    |> start
+	fromRange(0, 10)
+		|> takeLast()
+		|> onNext(n => expect(n).toBe(10))
+		|> onFinish(() => {
+			done()
+		})
+		|> start
 })
 
 test('takeLast operator: multiple', done => {
-  let list = [6, 7, 8, 9, 10]
-  fromRange(0, 10)
-    |> takeLast(5)
-    |> onNext(n => expect(n).toBe(list.shift()))
-    |> onFinish(() => {
-      done()
-    })
-    |> start
+	let list = [6, 7, 8, 9, 10]
+	fromRange(0, 10)
+		|> takeLast(5)
+		|> onNext(n => expect(n).toBe(list.shift()))
+		|> onFinish(() => {
+			done()
+		})
+		|> start
 })
 
 // test('then operator', done => {

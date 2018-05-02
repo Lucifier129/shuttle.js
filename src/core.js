@@ -1,4 +1,3 @@
-
 const START = 0
 const NEXT = 1
 const FINISH = 2
@@ -15,62 +14,43 @@ const ASYNC = 3
 // callback a -> callback b
 // sink a -> sink b
 
-const pipe = (...args) => args.reduce((result, f) => f(result))
-const bind = f => source => sink => source((type, payload) => f(sink, type, payload))
-const run = f => source => {
-	let callback = source((type, payload) => {
-		if (type === START) {
-			callback(NEXT)
-		} else if (type === NEXT) {
-			f(payload)
-			callback(NEXT)
-		}
-	})
-	callback(START)
-	return callback
-}
-
-
-const map = f => callback => (type, payload) => {
-	let result = f({ type, payload })
-	return callback(result.type, result.payload)
-}
-
-const filter = f => callback => (type, payload) => {
-	if (f(type, payload)) {
-		callback(type, payload)
-	}
-}
-
-const concat = (...callback)
-
-
 const interval = period => sink => {
-	let timer
 	let i = 0
-	return (type, payload) => {
-		if (type === START) {
-			timer = setInterval(() => sink(NEXT, i++), period)
-			sink(START)
-		} else if (type === FINISH) {
-			clearInterval(timer)
-			sink(FINISH)
-		} else if (type === NEXT) {
-			sink(ASYNC)
-		} else {
-			sink(type, payload)
-		}
+	let timer = null
+	let start = () => {
+		timer = setInterval(() => sink.next(), period)
 	}
+	let next = noop
+	let finish = () => {
+		clearInterval(timer)
+		sink.finish()
+	}
+	return { ...sink, start, next, finish }
 }
 
-pipe(
-	interval(100),
-	bind((sink, type, payload) => {
-		if (type === NEXT) {
-			sink(type, payload + 1)
-		} else {
-			sink(type, payload)
-		}
-	}),
-	run(x => console.log(x))
-)
+const map = f => source => sink => {
+	return source({
+		...sink,
+		next: value => sink.next(f(value))
+	})
+}
+
+const filter = f => source => sink => {
+	return source({
+		...sink,
+		next: value => f(value) && sink.next(value)
+	})
+}
+
+const take = max => source => sink => {
+	let count = 0
+	let next = value => {
+		if (count === max) return sink.finish()
+		count += 1
+		sink.next()
+	}
+	return source({
+		...sink,
+		next
+	})
+}
