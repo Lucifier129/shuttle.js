@@ -1,260 +1,113 @@
-import { START, NEXT, FINISH } from './constant'
-import { guard, log, logValue } from './utility'
-import { empty, once, fromRange, fromAction, fromArray } from './source'
-import { toCallback, start, observe } from './sink'
+import { guard, log, logValue, noop, identity } from './utility'
+import { pullable, run, onStart, onNext, onFinish, onError, fork } from './sink'
+import { fromEvent, fromArray, fromRange, interval, of } from './source'
 
-export const fork = f => source => sink => {
-	let callback = source((type, payload) => {
-		f(type, payload)
-		sink(type, payload)
-	})
-	return callback
-}
-
-export const forkIf = (f, theType) => source => sink => {
-	let isMatch = Array.isArray(theType) ? type => theType.indexOf(type) !== -1 : type => type === theType
-	let callback = source((type, payload) => {
-		if (isMatch(type)) {
-			f(type, payload)
-		}
-		sink(type, payload)
-	})
-	return callback
-}
-
-export const forkIfNot = (f, theType) => source => sink => {
-	let isMatch = Array.isArray(theType) ? type => theType.indexOf(type) === -1 : type => type !== theType
-	let callback = source((type, payload) => {
-		if (isMatch(type)) {
-			f(type, payload)
-		}
-		sink(type, payload)
-	})
-	return callback
-}
-
-export const shuntIf = (f, theType) => source => sink => {
-	let isMatch = Array.isArray(theType) ? type => theType.indexOf(type) !== -1 : type => type === theType
-	let callback = source((type, payload) => {
-		if (isMatch(type)) {
-			f(type, payload)
-		} else {
-			sink(type, payload)
-		}
-	})
-	return callback
-}
-
-export const shuntIfNot = (f, theType) => source => sink => {
-	let isMatch = Array.isArray(theType) ? type => theType.indexOf(type) === -1 : type => type !== theType
-	let callback = source((type, payload) => {
-		if (isMatch(type)) {
-			f(type, payload)
-		} else {
-			sink(type, payload)
-		}
-	})
-	return callback
-}
-
-export const forkAndSwitchIf = (f, theType, toType) => {
-	let getType = Array.isArray(toType) ? type => toType[theType.indexOf(type)] : type => toType
-	return forkIf((type, payload) => f(getType(type), payload), theType)
-}
-
-export const forkAndSwitchIfNot = (f, theType, toType) => {
-	let getType = Array.isArray(toType) ? type => toType[theType.indexOf(type)] : type => toType
-	return forkIfNot((type, payload) => f(getType(type), payload), theType)
-}
-
-export const shuntAndSwitchIf = (f, theType, toType) => {
-	let getType = Array.isArray(toType) ? type => toType[theType.indexOf(type)] : type => toType
-	return shuntIf((type, payload) => f(getType(type), payload), theType)
-}
-
-export const shuntAndSwitchIfNot = (f, theType, toType) => {
-	let getType = Array.isArray(toType) ? type => toType[theType.indexOf(type)] : type => toType
-	return shuntIfNot((type, payload) => f(getType(type), payload), theType)
-}
-
-export const map = f => source => sink => {
-	return source((type, payload) => {
-		sink(type, type === NEXT ? f(payload) : payload)
-	})
-}
-
-export const mapTo = value => map(() => value)
-
-export const filter = f => source => sink => {
-	let callback = source((type, payload) => {
-		if (type === NEXT) {
-			if (f(payload)) {
-				sink(NEXT, payload)
-			} else {
-				callback(NEXT)
-			}
-		} else {
-			sink(type, payload)
-		}
-	})
-	return callback
-}
-
-export const skip = (count = 0) =>
-	filter(() => {
-		if (count === 0) return true
-		count -= 1
-		return false
-	})
-
-export const take = max => source => sink => {
-	let innerCallback = source(sink)
+const consume = make => sink => {
 	let count = 0
-	let callback = guard((type, payload) => {
-		if (type === NEXT) {
-			if (count === max) return callback(FINISH)
-			count += 1
+	let innerAction = null
+	let innerSink = {
+		next: sink.next,
+		error: sink.error,
+		finish: () => {
+			innerAction = null
+			outerAction && doMake()
 		}
-		innerCallback(type, payload)
-	})
-	return callback
-}
-
-export const scan = (f, seed) => source => sink => {
-	let acc = seed
-	return source((type, payload) => {
-		if (type === NEXT) {
-			sink(NEXT, (acc = f(acc, payload)))
-		} else {
-			sink(type, payload)
-		}
-	})
-}
-
-export const reduce = (f, seed) => source => sink => {
-	return source |> scan(f, seed) |> then(list => fromArray(list) |> fork(sink)) |> toCallback
-}
-
-export const makeSource = make => sink => {
-	let safeSink = guard(sink)
-	let MAKE = {}
-	let innerCallback = null
-	let callback = guard((type, payload) => {
-		if (type === START) return callback(MAKE)
-		if (type === MAKE) {
-			let source = make()
-			innerCallback = null
-			if (!source) {
-				callback(FINISH)
-			} else {
-				innerCallback = source |> forkIfNot(safeSink, FINISH) |> forkAndSwitchIf(callback, FINISH, MAKE) |> toCallback
-				innerCallback(START)
-			}
-		} else if (type === FINISH) {
-			innerCallback && innerCallback(FINISH)
-			safeSink(FINISH)
-		} else {
-			innerCallback && innerCallback(type, payload)
-		}
-	})
-	return callback
-}
-
-export const makeSourceOnce = make => {
-	let used = false
-	return makeSource(() => {
-		if (used) return
-		used = true
-		return make()
-	})
-}
-export const concat = (...sourceList) => makeSource(() => sourceList.shift())
-export const concatMake = (...makeList) => makeSource(() => makeList.shift()())
-export const concatWith = source2 => source1 => concat(source1, source2)
-export const concatWithMake = make => source => {
-	let first = false
-	let last = false
-	return makeSource(() => {
-		if (!first) {
-			first = true
-			return source
-		}
-		if (!last) {
-			last = true
-			return make()
-		}
-	})
-}
-
-export const takeLast = (count = 1) => source => sink => {
-	let list = []
-	let collect = (_, payload) => {
-		list.push(payload)
-		if (list.length > count) list.shift()
 	}
-	return source |> forkIf(collect, NEXT) |> concatWithMake(() => fromArray(list) |> fork(sink)) |> toCallback
+	let doMake = () => {
+		let makedSource = make(count++)
+		if (!makedSource) return outerAction.finish()
+		innerAction = pullable(innerSink)(makedSource)
+		innerAction.start()
+	}
+	let outerAction = guard({
+		...sink,
+		start: () => {
+			sink.start()
+			doMake()
+		},
+		next: noop,
+		finish: () => {
+			outerAction = null
+			innerAction && innerAction.finish()
+			sink.finish()
+		}
+	})
+	return outerAction
 }
 
-export const then = makeSource => source => sink => {
-	let safeSink = guard(sink)
-	return source |> forkIfNot(safeSink, FINISH) |> takeLast() |> switchMap(makeSource) |> fork(safeSink) |> toCallback
-}
+export const concat = (...sourceList) => consume(count => sourceList[count])
+export const concatSource = source2 => source1 => concat(source1, source2)
+export const concatBy = (...makeList) =>
+	consume(count => {
+		let make = makeList[count]
+		return make ? make(count) : null
+	})
+export const concatSourceBy = make => source => concatBy(() => source, make)
 
 export const merge = (...sourceList) => sink => {
-	let safeSink = guard(sink)
-	let callbackList
 	let finishCount = 0
-	let getCallback = source => source |> forkIf(safeSink, NEXT) |> forkIf(finish, FINISH) |> toCallback
-	let startAll = callback => callback(START)
-	let finishAll = callback => callback(FINISH)
-	let finish = () => ++finishCount === sourceList.length && callback(FINISH)
-	let callback = guard((type, payload) => {
-		if (type === NEXT) return
-		if (type === START) {
-			callbackList = sourceList.map(getCallback)
-			callbackList.forEach(startAll)
-			safeSink(START)
-		} else if (type === FINISH) {
-			callbackList.forEach(finishAll)
-			safeSink(FINISH)
-		} else {
-			callbackList && callbackList.forEach(callback => callback(type, payload))
-			safeSink(type, payload)
+	let innerSink = {
+		next: sink.next,
+		error: sink.error,
+		finish: () => {
+			if (++finishCount === sourceList.length) action.finish()
+		}
+	}
+	let actionList = sourceList.map(source => source |> pullable(innerSink))
+	let action = guard({
+		...sink,
+		start: () => {
+			actionList.forEach(innerAction => innerAction.start())
+			sink.start()
+		},
+		next: noop,
+		finish: () => {
+			actionList.forEach(innerAction => innerAction.finish())
+			sink.finish()
 		}
 	})
-	return callback
+	return action
 }
+
+export const mergeWith = source2 => source1 => merge(source1, source2)
 
 const EMPTY = {}
 export const combine = (...sourceList) => sink => {
 	let finishCount = 0
-	let finish = () => ++finishCount === sourceList.length && callback(FINISH)
-	let valueList = []
-	let next = (payload, index) => {
-		valueList[index] = payload
-		if (valueList.indexOf(EMPTY) === -1) {
-			sink(NEXT, valueList.concat())
-		}
+	let innerFinish = () => {
+		if (++finishCount === sourceList.length) action.finish()
 	}
-	let callbackList = sourceList.map((source, index) => {
+	let valueList = new Array(sourceList.length)
+	let actionList = sourceList.map((source, index) => {
+		let innerSink = {
+			next: value => {
+				valueList[index] = value
+				if (valueList.indexOf(EMPTY) === -1) {
+					sink.next(valueList.concat())
+				}
+			},
+			finish: innerFinish,
+			error: sink.error
+		}
 		valueList[index] = EMPTY
-		return source |> forkIf((_, payload) => next(payload, index), NEXT) |> forkIf(finish, FINISH) |> toCallback
+		return source |> pullable(innerSink)
 	})
-	let callback = guard((type, payload) => {
-		if (type === NEXT) return
-		if (type === START) {
-			callbackList.forEach(callback => callback(START))
-			sink(START)
-		} else if (type === FINISH) {
-			callbackList.forEach(callback => callback(FINISH))
-			sink(FINISH)
-		} else {
-			callbackList.forEach(callback => callback(type, payload))
-			sink(type, payload)
+	let action = guard({
+		...sink,
+		start: () => {
+			actionList.forEach(innerAction => innerAction.start())
+			sink.start()
+		},
+		next: noop,
+		finish: () => {
+			actionList.forEach(innerAction => innerAction.finish())
+			sink.finish()
 		}
 	})
-	return callback
+	return action
 }
+
+export const combineWith = source2 => source1 => combine(source1, source2)
 
 export const combineObject = shape => {
 	let keys = Object.keys(shape)
@@ -270,142 +123,147 @@ export const combineObject = shape => {
 	)
 }
 
-export const share = source => {
-	let list = []
-	let isStarted = false
-	let isFinished = false
-	let start = () => {
-		isStarted = true
-		let sinkList = list.concat()
-		for (let i = 0; i < sinkList.length; i++) {
-			sinkList[i](START)
+export const map = f => source => sink => {
+	return source({
+		...sink,
+		next: value => sink.next(f(value))
+	})
+}
+
+export const mapTo = value => map(() => value)
+
+export const filter = f => source => sink => {
+	let next = value => {
+		if (f(value)) {
+			sink.next(value)
+		} else {
+			action.next()
 		}
 	}
-	let next = (_, payload) => {
-		let sinkList = list.concat()
-		for (let i = 0; i < sinkList.length; i++) {
-			sinkList[i](NEXT, payload)
-		}
+	let action = source({
+		...sink,
+		next
+	})
+	return action
+}
+
+export const take = (max = 0) => source => sink => {
+	let action = source(sink)
+	let count = 0
+	let next = () => {
+		if (count === max) return action.finish()
+		count += 1
+		action.next()
 	}
-	let finish = () => {
-		let sinkList = list.concat()
-		for (let i = 0; i < sinkList.length; i++) {
-			sinkList[i](FINISH)
-		}
+	return {
+		...action,
+		next
 	}
-	let realCallback = source |> forkIf(start, START) |> forkIf(next, NEXT) |> forkIf(finish, FINISH) |> toCallback
-	return sink => {
-		let callback = guard((type, payload) => {
-			if (type === START) {
-				if (!isStarted) {
-					realCallback(START)
-				} else {
-					sink(START)
-				}
-			} else if (type === NEXT) {
-				if (isFinished) {
-					sink(FINISH)
-				} else {
-					return
-				}
-			} else if (type === FINISH) {
-				let index = list.indexOf(sink)
-				if (index !== -1) {
-					list.splice(index, 1)
-				}
-				sink(FINISH)
-				if (list.length === 0) {
-					realCallback(FINISH)
-				}
-			} else {
-				realCallback(type, payload)
-			}
-		})
-		list.push(sink)
-		return callback
-	}
+}
+
+export const scan = (f, seed) => source => sink => {
+	let acc = seed
+	let next = value => sink.next((acc = f(acc, value)))
+	return source({
+		...sink,
+		next
+	})
+}
+
+export const skip = (count = 0) => {
+	return filter(() => {
+		if (count === 0) return true
+		count -= 1
+		return false
+	})
 }
 
 export const takeUntil = until$ => source => sink => {
-	let innerCallback = null
-	let callback = source((type, payload) => {
-		if (type === START) {
-			innerCallback = until$ |> forkAndSwitchIf(callback, NEXT, FINISH) |> toCallback
-			innerCallback(START)
-			sink(START)
-		} else if (type === FINISH) {
-			innerCallback(FINISH)
-			sink(FINISH)
-		} else {
-			if (type !== NEXT) {
-				innerCallback && innerCallback(type, payload)
-			}
-			sink(type, payload)
-		}
-	})
-	return callback
+	let action = source(sink)
+	let start = () => {
+		action.start()
+		untilAction.start()
+	}
+	let next = () => {
+		action.finish()
+		untilAction.finish()
+	}
+	let untilAction = pullable({ next })(until$)
+	return {
+		...action,
+		start
+	}
 }
 
-export const switchMap = makeSource => source => sink => {
-	let innerCallback = null
-	let outerFinished = false
-	let innerFinished = false
-	let finish = () => {
-		innerCallback = null
-		innerFinished = true
-		if (outerFinished) {
-			callback(FINISH)
-		} else {
-			outerCallback(NEXT)
+export const takeLast = (count = 1) => source => sink => {
+	let list = []
+	let innerSink = {
+		next: value => {
+			list.push(value)
+			if (list.length > count) list.shift()
+		},
+		finish: () => {
+			if (!action) return
+			action = pullable(sink)(fromArray(list))
+			action.start()
 		}
 	}
-	let outerCallback = source((type, payload) => {
-		if (type === NEXT) {
-			innerCallback && innerCallback(FINISH)
-			innerCallback = makeSource(payload) |> forkIf(sink, NEXT) |> forkIf(finish, FINISH) |> toCallback
-			innerFinished = false
-			innerCallback(START)
-		} else if (type === FINISH) {
-			outerFinished = true
-			if (innerFinished) {
-				callback(FINISH)
-			}
-		} else {
-			innerCallback && innerCallback(type, payload)
-			sink(type, payload)
+	let action = pullable(innerSink)(source)
+	return guard({
+		...sink,
+		start: action.start,
+		next: noop,
+		finish: () => {
+			let finish = action.finish
+			action = null
+			finish()
 		}
 	})
-	let callback = guard((type, payload) => {
-		if (type === NEXT) {
-			if (innerCallback) {
-				innerCallback(NEXT)
-			} else {
-				outerCallback(NEXT)
-			}
-		} else if (type === FINISH) {
-			innerCallback && innerCallback(FINISH)
-			outerCallback(FINISH)
-			sink(FINISH)
-		} else {
-			outerCallback(type, payload)
-		}
-	})
-	return callback
 }
 
-export const startWith = startValue => source => sink => {
-	let sent = false
-	let callback = source(sink)
-	return guard((type, payload) => {
-		if (type === NEXT) {
-			if (!sent) {
-				sent = true
-				sink(NEXT, startValue)
-			} else {
-				callback(type, payload)
+export const switchMap = (makeSource, f = identity) => source => sink => {
+	let innerAction = null
+	let innerSink = {
+		next: value => sink.next(f(value)),
+		finish: () => {
+			if (!innerAction) return
+			innerAction = null
+			outerAction.next()
+		}
+	}
+	let outerAction = source({
+		...sink,
+		next: value => {
+			if (innerAction) {
+				let { finish } = innerAction
+				innerAction = null
+				finish()
 			}
-		} else {
-			callback(type, payload)
+			innerAction = pullable(innerSink)(makeSource(value))
+			innerAction.start()
+		}
+	})
+	return guard({
+		...outerAction,
+		next: () => {
+			!innerAction && outerAction.next()
+		},
+		finish: () => {
+			let innerFinish = innerAction ? innerAction.finish : noop
+			let outerFinish = outerAction.finish
+			innerAction = outerAction = null
+			innerFinish()
+			outerFinish()
 		}
 	})
 }
+
+export const then = make => source => sink => {
+	return source |> onNext(sink.next) |> takeLast() |> switchMap(make) |> pullable(sink)
+}
+
+export const reduce = (f, seed) => source => sink => {
+	return source |> scan(f, seed) |> then(list => fromArray(list) |> fork(sink)) |> pullable
+}
+
+export const startWith = value => source => concat(of(value), source)

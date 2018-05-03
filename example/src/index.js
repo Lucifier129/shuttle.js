@@ -1,7 +1,6 @@
-import { START, NEXT, FINISH, ASYNC } from 'sukkula/src/constant'
-import { log, logValue, guard } from 'sukkula/src/utility'
-import { interval, fromArray, fromRange, fromAction } from 'sukkula/src/source'
-import { onStart, onNext, onFinish, observe, start } from 'sukkula/src/sink'
+import { log, logValue, guard, noop } from 'sukkula/src/utility'
+import { interval, fromArray, fromRange, fromEvent } from 'sukkula/src/source'
+import { onStart, onNext, onFinish, run, pullable } from 'sukkula/src/sink'
 import {
 	map,
 	mapTo,
@@ -9,17 +8,17 @@ import {
 	take,
 	takeUntil,
 	merge,
+	mergeWith,
 	concat,
 	combine,
 	combineObject,
 	switchMap,
-	share,
 	startWith,
 	takeLast,
-	skip,
 	then
 } from 'sukkula/src/operator'
 import { Spring } from 'wobble'
+import EventEmitter from 'events'
 
 const springOptions = {
 	fromValue: 1,
@@ -31,22 +30,21 @@ const springOptions = {
 
 const spring = options => sink => {
 	let instance = new Spring({ ...springOptions, ...options })
-	let callback = guard((type, payload) => {
-		if (type === START) {
+	let action = guard({
+		...sink,
+		start: () => {
 			instance.start()
-			instance.onUpdate(data => sink(NEXT, data))
-			instance.onStop(() => callback(FINISH))
-			sink(START)
-		} else if (type === NEXT) {
-			sink(ASYNC)
-		} else if (type === FINISH) {
+			instance.onUpdate(data => sink.next(data))
+			instance.onStop(() => action.finish())
+			sink.start()
+		},
+		next: noop,
+		finish: () => {
 			instance.stop()
-			sink(FINISH)
-		} else {
-			sink(type, payload)
+			sink.finish()
 		}
 	})
-	return callback
+	return action
 }
 
 const getEvent = event => (event.touches ? event.touches[0] : event)
@@ -72,14 +70,15 @@ const setTranslate = (elem, { left, top }) => {
 }
 
 function drag() {
-	let action = {
-		START: Symbol('start'),
-		MOVE: Symbol('move'),
-		END: Symbol('end')
+	let emitter = new EventEmitter()
+	let symbol = {
+		start: Symbol('start'),
+		move: Symbol('move'),
+		end: Symbol('end')
 	}
-	let start$ = fromAction(action.START)
-	let move$ = fromAction(action.MOVE)
-	let end$ = fromAction(action.END)
+	let start$ = fromEvent(emitter, symbol.start)
+	let move$ = fromEvent(emitter, symbol.move)
+	let end$ = fromEvent(emitter, symbol.end)
 	let makeSpring = coords =>
 		spring()
 		|> takeUntil(start$)
@@ -91,35 +90,45 @@ function drag() {
 		})
 	let coords$ =
 		start$
-    |> switchMap(downEvent => 
-      move$
-        |> map(getCoords(downEvent))
-        |> takeUntil(end$)
-        |> then(makeSpring))
-    |> startWith({ left: 0, top: 0 })
-  
+		|> switchMap(downEvent => move$ |> map(getCoords(downEvent)) |> takeUntil(end$) |> then(makeSpring))
+		|> startWith({ left: 0, top: 0 })
+
+	let handler = {
+		start: value => emitter.emit(symbol.start, value),
+		move: value => emitter.emit(symbol.move, value),
+		end: value => emitter.emit(symbol.end, value)
+	}
 
 	return {
-		position$: coords$,
-		action
+		data$: coords$,
+		handler,
+		emitter,
+		symbol
 	}
 }
 
 function dragBall(elem) {
-	let setTranslate = ({ left, top }) =>
-		(elem.style.transform = elem.style.webkitTransform = `translate(${left}px, ${top}px)`)
-	let { position$, action } = drag()
-	let callback = position$ |> onNext(setTranslate) |> start
-	let handleStart = event => callback(action.START, event)
-	let handleMove = event => callback(action.MOVE, event)
-	let handleEnd = event => callback(action.END, event)
-	let eventOptions = { passive: false }
-	elem.addEventListener('mousedown', handleStart, eventOptions)
-	document.addEventListener('mousemove', handleMove, eventOptions)
-	document.addEventListener('mouseup', handleEnd, eventOptions)
-	elem.addEventListener('touchstart', handleStart, eventOptions)
-	document.addEventListener('touchmove', handleMove, eventOptions)
-	document.addEventListener('touchend', handleEnd, eventOptions)
+	let { data$, handler } = drag()
+	let options = { passive: false }
+
+	fromEvent(elem, 'mousedown', options)
+		|> mergeWith(fromEvent(elem, 'touchstart', options))
+		|> run(handler.start)
+
+	fromEvent(document, 'mousemove', options)
+		|> mergeWith(fromEvent(document, 'touchmove', options))
+		|> run(handler.move)
+
+	fromEvent(document, 'mouseup', options)
+		|> mergeWith(fromEvent(document, 'touchend', options))
+		|> run(handler.end)
+
+	data$
+		|> run(({ left, top }) => {
+			let styleValue = `translate(${left}px, ${top}px)`
+			elem.style.transform = styleValue
+			elem.style.webkitTransform = styleValue
+		})
 }
 
 dragBall(document.querySelector('.ball'))

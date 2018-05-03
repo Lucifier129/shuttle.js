@@ -1,56 +1,72 @@
-import { START, NEXT, FINISH } from './constant'
-import { guard, log } from './utility'
+import { guard, log, logValue, noop } from './utility'
 
 export const empty = sink => {
-	let callback = guard((type, payload) => {
-		if (type === NEXT) return callback(FINISH)
-		sink(type, payload)
+	return guard({
+		...sink,
+		next: sink.finish
 	})
-	return callback
 }
 
-export const once = sink => {
-	let sent = false
-	let callback = guard((type, payload) => {
-		if (type === NEXT) {
-			if (!sent) {
-				sent = true
-				sink(NEXT)
-			} else {
-				callback(FINISH)
-			}
-		} else {
-			sink(type, payload)
-		}
-	})
-	return callback
-}
-
-export const interval = period => sink => {
-	let timer
+export const interval = (period = 1000) => sink => {
 	let i = 0
-	return guard((type, payload) => {
-		if (type === START) timer = setInterval(() => sink(NEXT, i++), period)
-		if (type === FINISH) clearInterval(timer)
-		if (type === NEXT) return
-		sink(type, payload)
+	let timer = null
+	let start = () => {
+		timer = setInterval(() => sink.next(i++), period)
+		sink.start()
+	}
+	let next = noop
+	let finish = () => {
+		clearInterval(timer)
+		sink.finish()
+	}
+	return guard({ ...sink, start, next, finish })
+}
+
+const eventMethodList = [
+	['addEventListener', 'removeEventListener'],
+	['addListener', 'removeListener'],
+	['subscribe', 'unsubscribe'],
+	['on', 'off']
+]
+const findEventMethod = emitter => {
+	let methodList = eventMethodList.filter(item => item[0] in emitter)[0]
+	if (!methodList) throw new Error('unsupport event emitter')
+	return methodList
+}
+export const fromEvent = (emitter, name, ...args) => sink => {
+	let [on, off] = findEventMethod(emitter)
+	let feed = value => sink.next(value)
+	let start = () => {
+		emitter[on](name, feed, ...args)
+		sink.start()
+	}
+	let next = noop
+	let finish = () => {
+		emitter[off](name, feed, ...args)
+		sink.finish()
+	}
+	return guard({
+		...sink,
+		start,
+		next,
+		finish
 	})
 }
 
 export const fromArray = array => sink => {
 	let i = 0
-	let callback = guard((type, payload) => {
-		if (type === NEXT) {
-			if (i < array.length) {
-				sink(NEXT, array[i++])
-			} else if (i === array.length) {
-				callback(FINISH)
-			}
-		} else {
-			sink(type, payload)
+	let next = () => {
+		if (i < array.length) {
+			sink.next(array[i++])
+		} else if (i === array.length) {
+			action.finish()
 		}
+	}
+	let action = guard({
+		...sink,
+		next
 	})
-	return callback
+	return action
 }
 
 export const of = (...array) => fromArray(array)
@@ -59,30 +75,41 @@ export const fromRange = (start = 0, end = 0, step = 1) => sink => {
 	if (start === end) return empty(sink)
 	let isGT = end > start
 	let sent = start - step
-	let callback = guard((type, payload) => {
-		if (type === NEXT) {
-			sent += step
-			if (isGT ? sent <= end : sent >= end) {
-				sink(NEXT, sent)
-			} else if (isGT ? sent > end : sent < end) {
-				callback(FINISH)
-			}
-		} else {
-			sink(type, payload)
+	let next = value => {
+		sent += step
+		if (isGT ? sent <= end : sent >= end) {
+			sink.next(sent)
+		} else if (isGT ? sent > end : sent < end) {
+			action.finish()
 		}
+	}
+	let action = guard({
+		...sink,
+		next
 	})
-	return callback
+	return action
 }
 
-export const fromAction = actionType => sink => {
-	let callback = guard((type, payload) => {
-		if (type === actionType) {
-			sink(NEXT, payload)
-		} else if (type === NEXT) {
-			return
-		} else {
-			sink(type, payload)
+export const fromPromise = promise => sink => {
+	let finished = false
+	promise.then(
+		value => {
+			if (finished) return
+			sink.next(value)
+			action.finish()
+		},
+		error => {
+			if (finished) return
+			sink.error(error)
+		}
+	)
+	let action = guard({
+		...sink,
+		next: noop,
+		finish: () => {
+			finished = true
+			sink.finish()
 		}
 	})
-	return callback
+	return action
 }

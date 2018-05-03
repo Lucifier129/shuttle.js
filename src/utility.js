@@ -1,47 +1,114 @@
-import { START, NEXT, FINISH, ERROR } from './constant'
-
 export const pipe = (...args) => args.reduce((result, f) => f(result))
+export const noop = () => {}
+export const identity = x => x
+export const constant = value => () => value
 
-export const guard = callback => {
-	let isStarted = false
-	let isFinished = false
-	let guarder = (type, payload) => {
-		if (isFinished) return
-		if (isStarted && type === START) return
-		if (type === START) isStarted = true
-		if (type === FINISH) isFinished = true
-		if (!isStarted && type === FINISH) return
-		if (!isStarted && type !== START) {
-			let message = `source should be started before action: ${type}`
-			throw new Error(message)
-		}
-		callback(type, payload)
+export const mapValue = (obj, f) =>
+	Object.keys(obj).reduce((result, key) => {
+		result[key] = f(key, obj[key])
+		return result
+	}, {})
+
+export const guard = action => {
+	let started = false
+	let finished = false
+	let start = () => {
+		if (started || finished) return
+		started = true
+		action.start()
 	}
-	guarder.original = callback
-	return guarder
+	let next = () => {
+		if (!started) throw new Error('call [next] before [start]')
+		if (finished) return
+		action.next()
+	}
+	let finish = () => {
+		if (finished) return
+		finished = true
+		if (!started) return
+		action.finish()
+	}
+	let error = error => {
+		if (!started) throw new Error('call [next] before [start]')
+		if (finished) return
+		action.error(error)
+	}
+	return {
+		...action,
+		start,
+		next,
+		finish,
+		error,
+		original: action
+	}
 }
 
-const action = { START, NEXT, FINISH, ERROR }
-const getActionName = type => {
-	let target = Object.keys(action).find(name => action[name] === type)
-	return target != null ? target : type
-}
 export const log = name => source => sink => {
-	let callback = source((type, payload) => {
-		console.log('[forward]', name, getActionName(type), payload)
-		return sink(type, payload)
-	})
-	return guard((type, payload) => {
-		console.log('[backward]', name, getActionName(type), payload)
-		return callback(type, payload)
+	return source({
+		start: () => {
+			console.log(name, 'start')
+			sink.start()
+		},
+		next: value => {
+			console.log(name, 'next', value)
+			sink.next(value)
+		},
+		finish: () => {
+			console.log(name, 'finish')
+			sink.finish()
+		},
+		error: error => {
+			console.log(name, 'error', error)
+			sink.error(error)
+		}
 	})
 }
 
 export const logValue = name => source => sink => {
-	return source((type, payload) => {
-		if (type === NEXT) {
-			console.log('[value]', name, payload)
+	return source({
+		...sink,
+		next: value => {
+			console.log(name, 'next', value)
+			sink.next(value)
 		}
-		return sink(type, payload)
+	})
+}
+
+export const logAll = name => source => sink => {
+	let action = source({
+		start: () => {
+			console.log(name, 'sink:start')
+			sink.start()
+		},
+		next: value => {
+			console.log(name, 'sink:next', value)
+			sink.next(value)
+		},
+		finish: () => {
+			console.log(name, 'sink:finish')
+			sink.finish()
+		},
+		error: error => {
+			console.log(name, 'sink:error', error)
+			sink.error(error)
+		}
+	})
+	return guard({
+		start: () => {
+			console.log(name, 'action:start')
+			action.start()
+		},
+		next: value => {
+			console.log(name, 'action:next', value)
+			action.next(value)
+		},
+		finish: () => {
+			console.log(name, 'action:finish')
+			action.finish()
+		},
+		error: error => {
+			console.log(name, 'action:error', error)
+			action.error(error)
+		}
 	})
 }

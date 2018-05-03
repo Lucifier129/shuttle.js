@@ -1,7 +1,6 @@
-import { START, NEXT, FINISH, ERROR } from '../src/constant'
-import { guard, log, logValue } from '../src/utility'
-import { interval, fromArray, fromRange } from '../src/source'
-import { onType, onStart, onNext, onFinish, start } from '../src/sink'
+import { guard, log, logValue, logAll } from '../src/utility'
+import { interval, fromArray, fromRange, fromEvent } from '../src/source'
+import { onStart, onNext, onFinish, onError, run } from '../src/sink'
 import {
 	map,
 	filter,
@@ -11,20 +10,13 @@ import {
 	combine,
 	combineObject,
 	takeUntil,
-	share,
+	// share,
 	switchMap,
 	startWith,
 	takeLast,
-	then,
-	switchMapLast
+	then
 } from '../src/operator'
-
-test('check letant value', () => {
-	expect(START).toBe(0)
-	expect(NEXT).toBe(1)
-	expect(FINISH).toBe(2)
-	expect(ERROR).toBe(3)
-})
+import EventEmiter from 'events'
 
 test('interval source', done => {
 	let list = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
@@ -35,7 +27,7 @@ test('interval source', done => {
 			expect(list.length).toBe(0)
 			done()
 		})
-		|> start
+		|> run()
 })
 
 test('fromArray source', done => {
@@ -46,7 +38,7 @@ test('fromArray source', done => {
 			expect(list.length).toBe(0)
 			done()
 		})
-		|> start
+		|> run()
 })
 
 test('fromRange source: increment', done => {
@@ -57,7 +49,7 @@ test('fromRange source: increment', done => {
 			expect(list.length).toBe(0)
 			done()
 		})
-		|> start
+		|> run()
 })
 
 test('fromRange source: decrement', done => {
@@ -68,7 +60,7 @@ test('fromRange source: decrement', done => {
 			expect(list.length).toBe(0)
 			done()
 		})
-		|> start
+		|> run()
 })
 
 test('fromRange source: alphabet', done => {
@@ -80,7 +72,7 @@ test('fromRange source: alphabet', done => {
 			expect(list.length).toBe(0)
 			done()
 		})
-		|> start
+		|> run()
 })
 
 test('take operator', done => {
@@ -92,7 +84,7 @@ test('take operator', done => {
 			expect(list.length).toBe(0)
 			done()
 		})
-		|> start
+		|> run()
 })
 
 test('map operator', done => {
@@ -104,7 +96,7 @@ test('map operator', done => {
 			expect(list.length).toBe(0)
 			done()
 		})
-		|> start
+		|> run()
 })
 
 test('filter operator', done => {
@@ -116,7 +108,7 @@ test('filter operator', done => {
 			expect(list.length).toBe(0)
 			done()
 		})
-		|> start
+		|> run()
 })
 
 test('merge operator', done => {
@@ -128,7 +120,7 @@ test('merge operator', done => {
 			expect(list.length).toBe(0)
 			done()
 		})
-		|> start
+		|> run()
 })
 
 test('concat operator', done => {
@@ -140,7 +132,7 @@ test('concat operator', done => {
 			expect(list.length).toBe(0)
 			done()
 		})
-		|> start
+		|> run()
 })
 
 test('combine operator', done => {
@@ -152,33 +144,33 @@ test('combine operator', done => {
 			expect(list.length).toBe(0)
 			done()
 		})
-		|> start
+		|> run()
 })
 
-test('share operator', done => {
-	let interval$ = interval(10) |> share
-	let list1 = [0, 1, 2]
-	let list2 = [2, 3, 4]
-	interval$
-		|> take(3)
-		|> onNext(n => {
-			expect(n).toBe(list1.shift())
-			if (n === 1) {
-				interval$
-					|> take(3)
-					|> onNext(n => expect(n).toBe(list2.shift()))
-					|> onFinish(() => {
-						expect(list2.length).toBe(0)
-						done()
-					})
-					|> start
-			}
-		})
-		|> onFinish(() => {
-			expect(list1.length).toBe(0)
-		})
-		|> start
-})
+// test('share operator', done => {
+// 	let interval$ = interval(10) |> share
+// 	let list1 = [0, 1, 2]
+// 	let list2 = [2, 3, 4]
+// 	interval$
+// 		|> take(3)
+// 		|> onNext(n => {
+// 			expect(n).toBe(list1.shift())
+// 			if (n === 1) {
+// 				interval$
+// 					|> take(3)
+// 					|> onNext(n => expect(n).toBe(list2.shift()))
+// 					|> onFinish(() => {
+// 						expect(list2.length).toBe(0)
+// 						done()
+// 					})
+// 					|> run()
+// 			}
+// 		})
+// 		|> onFinish(() => {
+// 			expect(list1.length).toBe(0)
+// 		})
+// 		|> run()
+// })
 
 test('takeUntil operator', done => {
 	let list = [0, 1, 2, 3]
@@ -191,27 +183,18 @@ test('takeUntil operator', done => {
 			expect(list.length).toBe(0)
 			done()
 		})
-		|> start
+		|> run()
 })
 
 test('custom action', done => {
+	let emitter = new EventEmiter()
 	let DOWN = Symbol('down')
 	let MOVE = Symbol('move')
 	let UP = Symbol('up')
-	let source = sink => {
-		let callback = guard((type, payload) => {
-			if (type === DOWN || type === MOVE) {
-				sink(NEXT, payload)
-			} else if (type === UP) {
-				callback(FINISH)
-			} else if (type === NEXT) {
-				return
-			} else {
-				sink(type, payload)
-			}
-		})
-		return callback
-	}
+	let down$ = fromEvent(emitter, DOWN)
+	let move$ = fromEvent(emitter, MOVE)
+	let up$ = fromEvent(emitter, UP)
+	let source = merge(down$, move$) |> takeUntil(up$)
 	let actionList = [
 		{ type: DOWN, payload: 0 },
 		{ type: MOVE, payload: 1 },
@@ -219,7 +202,8 @@ test('custom action', done => {
 		{ type: MOVE, payload: 3 },
 		{ type: MOVE, payload: 4 },
 		{ type: MOVE, payload: 5 },
-		{ type: UP }
+		{ type: UP },
+		{ type: MOVE, payload: 6 }
 	]
 	let list = [0, 1, 2, 3, 4, 5]
 	let callback =
@@ -229,75 +213,74 @@ test('custom action', done => {
 			expect(list.length).toBe(0)
 			done()
 		})
-		|> start
-	actionList.forEach(({ type, payload }) => callback(type, payload))
+		|> run()
+	actionList.forEach(({ type, payload }) => emitter.emit(type, payload))
 })
 
-// test('switchMap operator: listenable & pullable', done => {
-//   let list = [0, 1, 0, 1, 2, 0, 1, 2, 3]
-//   interval(10)
-//     |> take(4)
-//     |> switchMap(n => fromRange(0, n))
-//     |> onNext(n => expect(n).toBe(list.shift()))
-//     |> onFinish(() => {
-//       expect(list.length).toBe(0)
-//       done()
-//     })
-//     |> start
-// })
+test('switchMap operator: listenable & pullable', done => {
+	let list = [0, 1, 0, 1, 2, 0, 1, 2, 3]
+	interval(10)
+		|> take(4)
+		|> switchMap(n => fromRange(0, n))
+		|> onNext(n => expect(n).toBe(list.shift()))
+		|> onFinish(() => {
+			expect(list.length).toBe(0)
+			done()
+		})
+		|> run()
+})
 
-// test('switchMap operator: pullable & pullable', done => {
-//   let list = [2, 3, 4, 3, 4, 5, 4, 5, 6]
-//   fromArray([1, 2, 3])
-//     |> switchMap(n => fromArray([n + 1, n + 2, n + 3]))
-//     |> onNext(n => expect(n).toBe(list.shift()))
-//     |> onFinish(() => {
-//       expect(list.length).toBe(0)
-//       done()
-//     })
-//     |> start
-// })
+test('switchMap operator: pullable & pullable', done => {
+	let list = [2, 3, 4, 3, 4, 5, 4, 5, 6]
+	fromArray([1, 2, 3])
+		|> switchMap(n => fromArray([n + 1, n + 2, n + 3]))
+		|> onNext(n => expect(n).toBe(list.shift()))
+		|> onFinish(() => {
+			expect(list.length).toBe(0)
+			done()
+		})
+		|> run()
+})
 
-// test('switchMap operator: pullable & listenable', done => {
-// 	let list = [1, 2, 2, 3, 3, 4]
+test('switchMap operator: pullable & listenable', done => {
+	let list = [1, 2, 2, 3, 3, 4]
+	fromArray([1, 2, 3])
+		|> switchMap(n => interval(10) |> take(2) |> map(count => count + n))
+		|> onNext(n => expect(n).toBe(list.shift()))
+		|> onFinish(() => {
+			expect(list.length).toBe(0)
+			done()
+		})
+		|> run()
+})
 
-// 	fromArray([1, 2, 3])
-// 		|> switchMap(n => interval(10) |> take(2) |> map(count => count + n))
-// 		|> onNext(n => expect(n).toBe(list.shift()))
-// 		|> onFinish(() => {
-// 			expect(list.length).toBe(0)
-// 			done()
-// 		})
-// 		|> start
-// })
+test('switchMap operator: last', done => {
+	let list = [2, 3, 4]
+	fromArray([1])
+		|> switchMap(n => fromArray([n + 1, n + 2, n + 3]))
+		|> onNext(n => expect(n).toBe(list.shift()))
+		|> onFinish(() => {
+			expect(list.length).toBe(0)
+			done()
+		})
+		|> run()
+})
 
-// test('switchMap operator: last', done => {
-//   let list = [2, 3, 4]
-//   fromArray([1])
-//     |> switchMap(n => fromArray([n + 1, n + 2, n + 3]))
-//     |> onNext(n => expect(n).toBe(list.shift()))
-//     |> onFinish(() => {
-//       expect(list.length).toBe(0)
-//       done()
-//     })
-//     |> start
-// })
-
-// test('combineObject operator', done => {
-//   let shape = {
-//     a: interval(10),
-//     b: interval(35)
-//   }
-//   let list = [{ a: 2, b: 0 }, { a: 3, b: 0 }]
-//   combineObject(shape)
-//     |> take(2)
-//     |> onNext(n => expect(n).toEqual(list.shift()))
-//     |> onFinish(() => {
-//       expect(list.length).toBe(0)
-//       done()
-//     })
-//     |> start
-// })
+test('combineObject operator', done => {
+	let shape = {
+		a: interval(10),
+		b: interval(35)
+	}
+	let list = [{ a: 2, b: 0 }, { a: 3, b: 0 }]
+	combineObject(shape)
+		|> take(2)
+		|> onNext(n => expect(n).toEqual(list.shift()))
+		|> onFinish(() => {
+			expect(list.length).toBe(0)
+			done()
+		})
+		|> run()
+})
 
 test('startWith operator', done => {
 	let list = [10, 0, 1]
@@ -309,7 +292,7 @@ test('startWith operator', done => {
 			expect(list.length).toBe(0)
 			done()
 		})
-		|> start
+		|> run()
 })
 
 test('takeLast operator: single', done => {
@@ -319,7 +302,7 @@ test('takeLast operator: single', done => {
 		|> onFinish(() => {
 			done()
 		})
-		|> start
+		|> run()
 })
 
 test('takeLast operator: multiple', done => {
@@ -330,28 +313,23 @@ test('takeLast operator: multiple', done => {
 		|> onFinish(() => {
 			done()
 		})
-		|> start
+		|> run()
 })
 
-// test('then operator', done => {
-//   let list1 = [6, 7, 8, 9, 10]
-//   let list2 = list1.concat().reverse()
-//   let list3 = list1.concat(list2)
-//   fromRange(0, 10)
-// 		|> takeLast(5)
-// 		|> logValue('then')
-//     |> onNext(n => expect(n).toBe(list1.shift()))
-//     |> then(
-//       n =>
-//         fromRange(n, list2[list2.length - 1], -1)
-//         |> onNext(n => expect(n).toBe(list2.shift()))
-//     )
-//     |> onNext(n => expect(n).toBe(list3.shift()))
-//     |> onFinish(() => {
-//       expect(list1.length).toBe(0)
-//       expect(list2.length).toBe(0)
-//       expect(list3.length).toBe(0)
-//       done()
-//     })
-//     |> start
-// })
+test('then operator', done => {
+	let list1 = [6, 7, 8, 9, 10]
+	let list2 = list1.concat().reverse()
+	let list3 = list1.concat(list2)
+	fromRange(0, 10)
+		|> takeLast(5)
+		|> onNext(n => expect(n).toBe(list1.shift()))
+		|> then(n => fromRange(n, list2[list2.length - 1], -1) |> onNext(n => expect(n).toBe(list2.shift())))
+		|> onNext(n => expect(n).toBe(list3.shift()))
+		|> onFinish(() => {
+			expect(list1.length).toBe(0)
+			expect(list2.length).toBe(0)
+			expect(list3.length).toBe(0)
+			done()
+		})
+		|> run()
+})
