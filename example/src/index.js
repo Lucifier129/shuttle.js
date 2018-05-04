@@ -1,4 +1,4 @@
-import { log, logValue, guard, noop } from 'sukkula/src/utility'
+import { log, logValue, logAll, guard, noop } from 'sukkula/src/utility'
 import { interval, fromArray, fromRange, fromEvent } from 'sukkula/src/source'
 import { onStart, onNext, onFinish, run, pullable } from 'sukkula/src/sink'
 import {
@@ -31,14 +31,12 @@ const springOptions = {
 const spring = options => sink => {
 	let instance = new Spring({ ...springOptions, ...options })
 	let action = guard({
-		...sink,
 		start: () => {
 			instance.start()
-			instance.onUpdate(data => sink.next(data))
+			instance.onUpdate(({ currentValue }) => sink.next(currentValue))
 			instance.onStop(() => action.finish())
 			sink.start()
 		},
-		next: noop,
 		finish: () => {
 			instance.stop()
 			sink.finish()
@@ -79,19 +77,17 @@ function drag() {
 	let start$ = fromEvent(emitter, symbol.start)
 	let move$ = fromEvent(emitter, symbol.move)
 	let end$ = fromEvent(emitter, symbol.end)
-	let makeSpring = coords =>
-		spring()
-		|> takeUntil(start$)
-		|> map(({ currentValue }) => {
-			return {
-				left: coords.left * currentValue,
-				top: coords.top * currentValue
-			}
+
+	let makeSpring = ({ left, top }) => {
+		let toPosition = ratio => ({
+			left: left * ratio,
+			top: top * ratio
 		})
-	let coords$ =
-		start$
-		|> switchMap(downEvent => move$ |> map(getCoords(downEvent)) |> takeUntil(end$) |> then(makeSpring))
-		|> startWith({ left: 0, top: 0 })
+		return spring() |> takeUntil(start$) |> map(toPosition)
+	}
+	let makeMoving = downEvent => move$ |> map(getCoords(downEvent)) |> takeUntil(end$) |> then(makeSpring)
+
+	let coords$ = start$ |> switchMap(makeMoving) |> startWith({ left: 0, top: 0 })
 
 	let handler = {
 		start: value => emitter.emit(symbol.start, value),
@@ -111,17 +107,13 @@ function dragBall(elem) {
 	let { data$, handler } = drag()
 	let options = { passive: false }
 
-	fromEvent(elem, 'mousedown', options)
-		|> mergeWith(fromEvent(elem, 'touchstart', options))
-		|> run(handler.start)
+	fromEvent(elem, 'mousedown', options) |> run(handler.start)
+	fromEvent(document, 'mousemove', options) |> run(handler.move)
+	fromEvent(document, 'mouseup', options) |> run(handler.end)
 
-	fromEvent(document, 'mousemove', options)
-		|> mergeWith(fromEvent(document, 'touchmove', options))
-		|> run(handler.move)
-
-	fromEvent(document, 'mouseup', options)
-		|> mergeWith(fromEvent(document, 'touchend', options))
-		|> run(handler.end)
+	fromEvent(elem, 'touchstart', options) |> run(handler.start)
+	fromEvent(document, 'touchmove', options) |> run(handler.move)
+	fromEvent(document, 'touchend', options) |> run(handler.end)
 
 	data$
 		|> run(({ left, top }) => {

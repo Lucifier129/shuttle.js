@@ -17,14 +17,17 @@ export const run = sink => source => {
   return action
 }
 
-export const on = name => f => source => sink => {
-  return source({
-    ...sink,
-    [name]: value => {
-      f(value)
-      sink[name](value)
-    }
-  })
+export const on = name => f => source => {
+  if (!source) debugger
+  return sink => {
+    return source({
+      ...sink,
+      [name]: value => {
+        f(value)
+        sink[name](value)
+      }
+    })
+  }
 }
 
 export const onStart = on('start')

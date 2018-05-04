@@ -5,7 +5,9 @@
   "main": "lib/index.js",
   "homepage": "https://github.com/Lucifier129/sukkula",
   "scripts": {
-    "build": "babel src --out-dir lib",
+    "build:babel": "babel src --out-dir lib",
+    "build:webpack": "webpack --env.production --config webpack.lib.config.js",
+    "build": "npm run build:babel && npm run build:webpack",
     "prebuild": "rimraf ./lib",
     "example:dev": "webpack --watch --env.development",
     "example:prod": "webpack --env.production",
