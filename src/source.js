@@ -47,7 +47,7 @@ export const create = producer => sink => {
 export const empty = create(sink => ({ next: sink.finish }))
 export const never = create(noop)
 
-export const interval = (period = 1000) =>
+export const interval = period =>
   create(callback => {
     let i = 0
     let timer = null
