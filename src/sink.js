@@ -1,11 +1,11 @@
-import { guard, mapValue, makeSink } from './utility'
+import { mapValue, makeSink } from './utility'
 
 export const fork = theSink => source => sink => {
-  let combineSink = mapValue(sink, (key, fn) => value => {
+  let finalSink = mapValue(makeSink(sink), (fn, key) => value => {
     theSink[key](value)
     fn(value)
   })
-  return source(makeSink(combineSink))
+  return source(finalSink)
 }
 
 export const toAction = sink => source => source(makeSink(sink))
@@ -17,17 +17,14 @@ export const run = sink => source => {
   return action
 }
 
-export const on = name => f => source => {
-  if (!source) debugger
-  return sink => {
-    return source({
-      ...sink,
-      [name]: value => {
-        f(value)
-        sink[name](value)
-      }
-    })
-  }
+export const on = name => f => source => sink => {
+  return source({
+    ...sink,
+    [name]: value => {
+      f(value)
+      sink[name](value)
+    }
+  })
 }
 
 export const onStart = on('start')
