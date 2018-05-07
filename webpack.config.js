@@ -5,7 +5,8 @@ module.exports = (env, argv) => {
     mode: env.production ? 'production' : 'development',
     devtool: env.production ? false : 'eval',
     entry: {
-      example: './example/src'
+      ball: './example/src/ball',
+      react: './example/src/react',
     },
     output: {
       filename: '[name].js',
