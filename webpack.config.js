@@ -5,8 +5,7 @@ module.exports = (env, argv) => {
     mode: env.production ? 'production' : 'development',
     devtool: env.production ? false : 'eval',
     entry: {
-      ball: './example/src/ball',
-      react: './example/src/react',
+      todos: './example/src/todos'
     },
     output: {
       filename: '[name].js',
@@ -25,7 +24,7 @@ module.exports = (env, argv) => {
     },
     resolve: {
       alias: {
-        sukkula: __dirname
+        sukkula: path.join(__dirname, 'src')
       }
     }
   }
