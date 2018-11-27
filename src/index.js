@@ -1,292 +1,324 @@
-import { shallowEqual, shallowEqualList } from './util'
+const { shallowEqualList } = require('./util')
 
-let current = null
-let stateIndex = 0
-let effectIndex = 0
-let refIndex = 0
+let env = null
 
-export const useState = initialValue => {
-  if (!current) {
-    throw new Error(`You can't use useState outside the usable function`)
-  }
-  return current.getState(stateIndex++, initialValue)
+const makeList = (initialList = []) => {
+	let list = initialList
+	let offset = 0
+	let reset = () => (offset = 0)
+	let exist = () => list.length > offset
+	let get = () => {
+		let target = list[offset]
+		offset += 1
+		return target
+	}
+	let set = item => (list[offset] = item)
+	let getAll = () => list
+	let each = f => list.forEach(f)
+	return { exist, get, set, reset, each, getAll }
 }
 
-export const useRef = initialValue => {
-  if (!current) {
-    throw new Error(`You can't use useRef outside the usable function`)
-  }
-  return current.getRef(refIndex++, initialValue)
+const makeDict = (initialDict = {}) => {
+	let dict = initialDict
+	let exist = key => dict.hasOwnProperty(key)
+	let get = key => dict[key]
+	let set = (val, key) => (dict[key] = val)
+	let getAll = () => dict
+	return { exist, get, set, getAll }
 }
 
-export const useGetSet = initialValue => {
-  let [value, setValue] = useState(initialValue)
-  let ref = useRef()
-  if (!ref.current) {
-    ref.current = {
-      value: value,
-      getValue: () => ref.current.value
-    }
-  }
-  ref.current.value = value
-  return [ref.current.getValue, setValue]
+const makeRefList = () => {
+	let refList = makeList()
+	let get = initialValue => {
+		if (!refList.exist()) {
+			refList.set({ current: initialValue })
+		}
+		return refList.get()
+	}
+	return { ...refList, get }
 }
 
-const PRE_EFFECT = Symbol('pre-effect')
-export const useRaise = (handler, argList) => {
-  if (!current) {
-    throw new Error(`You can't use useRaise outside the usable function`)
-  }
+const makeStateList = () => {
+	let stateList = makeList()
+	let get = initialState => {
+		if (!stateList.exist()) {
+			let pair = [initialState, value => (pair[0] = value)]
+			stateList.set(pair)
+		}
+		return stateList.get()
+	}
 
-  let [value, setValue] = useState()
-  let effectHandler = useEffectHandler(PRE_EFFECT, handler, argList)
-  let effect = current.setEffect(
-    effectIndex++,
-    PRE_EFFECT,
-    effectHandler.handleEffect
-  )
-
-  if (!effectHandler.hasOwnProperty('status')) {
-    effectHandler.status = 0
-    effectHandler.resume = value => {
-      effectHandler.status = 1
-      setValue(value)
-    }
-  }
-
-  if (effectHandler.shouldPerform) {
-    let performEffect = current.performEffect
-    throw {
-      type: PRE_EFFECT,
-      handler: () => performEffect(effect, PRE_EFFECT, effectHandler.resume)
-    }
-  }
-
-  return value
+	return { ...stateList, get }
 }
 
-export const useSuspense = (handler, argList) => {
-  return useRaise(resume => handler().then(resume), argList)
+const makeEffectList = () => {
+	let effectList = makeList()
+	let get = (action, handler, argList) => {
+		if (!effectList.exist()) {
+			let cleanUp = null
+			let clean = () => {
+				if (cleanUp) {
+					let fn = cleanUp
+					cleanUp = null
+					fn()
+				}
+			}
+			let perform = (action, payload) => {
+				if (effect.action !== action || effect.performed) {
+					return
+				}
+				clean()
+				effect.performed = true
+				let result = effect.handler.call(null, payload, action)
+				if (typeof result === 'function') {
+					cleanUp = result
+				}
+			}
+			let effect = {
+				action,
+				handler,
+				argList,
+				clean,
+				perform,
+				performed: false
+			}
+			effectList.set(effect)
+		}
+
+		let effect = effectList.get()
+		let isEqualAction = effect.action === action
+		let isEqualArgList = shallowEqualList(effect.argList, argList)
+
+		if (!isEqualAction || !isEqualArgList) {
+			effect.handler = handler
+			effect.performed = false
+		}
+
+		effect.action = action
+		effect.argList = argList
+
+		return effect
+	}
+
+	return { ...effectList, get }
 }
 
-const POST_EFFECT = Symbol('post-effect')
-export const useEffect = (action, handler, argList) => {
-  if (!current) {
-    throw new Error(`You can't use useEffect outside the usable function`)
-  }
+const runnable = producer => {
+	let runing = false
+	let rerun = false
+	let run = () => {
+		if (runing) {
+			rerun = true
+			return
+		}
 
-  if (typeof action === 'function') {
-    argList = handler
-    handler = action
-    action = POST_EFFECT
-  }
+		let result
+		try {
+			runing = true
+			result = producer()
+		} finally {
+			runing = false
+		}
 
-  let effectHandler = useEffectHandler(action, handler, argList)
-  current.setEffect(effectIndex++, action, effectHandler.handleEffect)
+		if (rerun) {
+			rerun = false
+			return run()
+		}
+		return result
+	}
+	return { run }
 }
 
-const useEffectHandler = (action, handler, argList) => {
-  let ref = useRef()
-
-  if (!ref.current) {
-    ref.current = createEffectRef(action, handler, argList)
-    return ref.current
-  }
-
-  if (!ref.current.shouldPerform) {
-    ref.current.shouldPerform =
-      ref.current.action !== action ||
-      !shallowEqualList(ref.current.argList, argList)
-  }
-
-  if (ref.current.shouldPerform) {
-    ref.current.handler = handler
-  }
-
-  ref.current.argList = argList
-  ref.current.action = action
-
-  return ref.current
+const resumable = producer => {
+	let { run } = runnable(() => {
+		try {
+			env = { resume: run }
+			return producer()
+		} finally {
+			env = null
+		}
+	})
+	return { run }
 }
 
-const createEffectRef = (action, handler, argList) => {
-  let current = {
-    action,
-    handler,
-    argList,
-    clean: null,
-    shouldPerform: true,
-    handleEffect: (payload, action) => {
-      if (!current.shouldPerform) return
-      current.shouldPerform = false
-      current.clean = current.handler(payload, action)
-      return current.handleClean
-    },
-    handleClean: isDestroy => {
-      if (!current.shouldPerform) return
-      let clean = current.clean
-      current.clean = null
-      if (typeof clean === 'function') clean(isDestroy)
-    }
-  }
-  return current
+const referencable = producer => {
+	let refList = makeRefList()
+	return resumable(() => {
+		env = { ...env, refList }
+		try {
+			refList.reset()
+			return producer()
+		} finally {
+			refList.reset()
+		}
+	})
 }
 
-export const usable = producer => {
-  let stateList = []
-  let updateState = index => nextValue => {
-    stateList[index][0] = nextValue
-    produce()
-  }
-  let getState = (index, initialValue) => {
-    if (!stateList[index]) {
-      stateList[index] = [initialValue, updateState(index)]
-    }
-    return stateList[index]
-  }
+const statable = producer => {
+	let stateList = makeStateList()
+	return referencable(() => {
+		env = { ...env, stateList }
+		try {
+			stateList.reset()
+			return producer()
+		} finally {
+			stateList.reset()
+		}
+	})
+}
 
-  let refList = []
-  let getRef = (index, initialValue) => {
-    if (!refList[index]) {
-      refList[index] = { current: initialValue }
-    }
-    return refList[index]
-  }
+const effectable = producer => {
+	let effectList = makeEffectList()
+	return statable(() => {
+		env = { ...env, effectList }
+		try {
+			effectList.reset()
+			return producer()
+		} finally {
+			effectList.reset()
+		}
+	})
+}
 
-  let effectList = []
-  let setEffect = (index, action, handler) => {
-    let effect = effectList[index]
-    if (!effect) {
-      effectList[index] = {
-        action,
-        handler,
-        clean: null
-      }
-      return effectList[index]
-    }
-    effect.action = action
-    effect.handler = handler
-    return effect
-  }
-  let performEffect = (effect, action, payload) => {
-    if (effect.action === action) {
-      cleanEffect(effect)
-      effect.clean = effect.handler(payload, action)
-    }
-  }
-  let performEffectList = (action, payload) => {
-    for (let i = 0; i < effectList.length; i++) {
-      performEffect(effectList[i], action, payload)
-    }
-  }
-  let cleanEffect = (effect, isDestroy) => {
-    let { clean } = effect
-    effect.clean = null
-    if (typeof clean === 'function') clean(!!isDestroy)
-  }
-  let cleanEffectList = isDestroy => {
-    for (let i = 0; i < effectList.length; i++) {
-      cleanEffect(effectList[i], isDestroy)
-    }
-  }
+const observable = producer => {
+	let listener = null
+	let subscribe = f => {
+		if (listener) {
+			throw new Error('Too much subscriber')
+		}
+		if (typeof f !== 'function') {
+			throw new Error('listener must be function')
+		}
+		listener = f
+	}
+	let unsubscribe = () => {
+		listener = null
+	}
+	let result = effectable(() => {
+		let result = producer()
+		if (listener) {
+			listener(result)
+		}
+		return result
+	})
+	return { ...result, subscribe, unsubscribe }
+}
 
-  let hasPending = false
-  let produce = () => {
-    if (current === internal) {
-      return (hasPending = true)
-    }
-    let result
-    let previous = current
-    current = internal
-    stateIndex = 0
-    effectIndex = 0
-    refIndex = 0
+const dispatchable = producer => {
+	let effectList = null
+	let dispatch = (action, payload) => {
+		if (!effectList) {
+			throw new Error('effect list is empty')
+		}
+		effectList.each(effect => effect.perform(action, payload))
+	}
+	let result = observable(() => {
+		env = { ...env, dispatch }
+		effectList = env.effectList
+		return producer()
+	})
+	let unsubscribe = () => {
+		result.unsubscribe()
+		effectList.each(effect => effect.clean())
+	}
 
-    try {
-      result = producer()
-    } catch (effect) {
-      if (!effect || effect.type !== PRE_EFFECT) {
-        throw effect
-      }
-      current = previous
-      hasPending = false
-      effect.handler()
-      return
-    }
-    current = previous
-    if (hasPending) {
-      hasPending = false
-      produce()
-    } else {
-      publish(result)
-      dispatch(POST_EFFECT)
-    }
-  }
+	return {
+		...result,
+		unsubscribe,
+		dispatch
+	}
+}
 
-  let currentAction = null
-  let currentPayload = null
-  let dispatch = (action, payload) => {
-    currentAction = action
-    currentPayload = payload
-    performEffectList(action, payload)
-    currentAction = null
-    currentPayload = null
-  }
+const POST = Symbol.for('@sukkula/post')
+const usable = producer => {
+	return dispatchable(() => {
+		let result = producer()
+		env.dispatch(POST)
+		return result
+	})
+}
 
-  let listenerList = []
-  let subscribe = listener => {
-    if (!listenerList.includes(listener)) {
-      listenerList.push(listener)
-    }
-    return () => {
-      let index = listenerList.indexOf(listener)
-      if (index !== -1) listenerList.splice(index, 1)
-    }
-  }
-  let publish = result => {
-    for (let i = 0; i < listenerList.length; i++) {
-      listenerList[i](result, currentAction, currentPayload)
-    }
-  }
+const useRef = initialValue => {
+	if (!env) {
+		throw new Error(`You can't use useRef outside the usable function`)
+	}
+	return env.refList.get(initialValue)
+}
 
-  let isInited = false
-  let init = () => {
-    if (isInited) return
-    isInited = true
-    produce()
-  }
+const useResume = () => {
+	if (!env) {
+		throw new Error(`You can't use useResume outside the usable function`)
+	}
+	return env.resume
+}
 
-  let isDestroyed = false
-  let destroy = () => {
-    isDestroyed = true
-    listenerList.length = 0
-    refList.length = 0
-    cleanEffectList(true)
-    cleanList.length = 0
-    stateList.length = 0
-  }
+const useDispatch = () => {
+	if (!env) {
+		throw new Error(`You can't use useDispatch outside the usable function`)
+	}
+	return env.dispatch
+}
 
-  let internal = {
-    getState,
-    setEffect,
-    performEffect,
-    getRef
-  }
+const useState = initialState => {
+	if (!env) {
+		throw new Error(`You can't use useState outside the usable function`)
+	}
+	let { stateList } = env
+	let isExisted = stateList.exist()
+	let resume = useResume()
+	let state = stateList.get(initialState)
 
-  let protect = obj => {
-    return Object.keys(obj).reduce((result, key) => {
-      result[key] = (...args) => {
-        if (isDestroyed) return
-        return obj[key](...args)
-      }
-      return result
-    }, {})
-  }
+	if (!isExisted) {
+		let setState = state[1]
+		state[1] = value => {
+			setState(value)
+			resume()
+		}
+	}
 
-  return protect({
-    init,
-    destroy,
-    dispatch,
-    subscribe
-  })
+	return state
+}
+
+const useGetSet = initialState => {
+	if (!env) {
+		throw new Error(`You can't use useGetSet outside the usable function`)
+	}
+	let { stateList } = env
+	let isExisted = stateList.exist()
+	let state = useState(initialState)
+
+	if (!isExisted) {
+		let [currentValue, setValue] = state
+		let get = () => currentValue
+		let set = value => {
+			currentValue = value
+			setValue(get)
+		}
+		state[0] = get
+		state[1] = set
+	}
+
+	return state
+}
+
+const useEffect = (action, handler, argList) => {
+	if (!env) {
+		throw new Error(`You can't use useEffect outside the usable function`)
+	}
+	env.effectList.get(action, handler, argList)
+}
+
+const usePostEffect = (handler, argList) => {
+	useEffect(POST, handler, argList)
+}
+
+module.exports = {
+	usable,
+	useState,
+	useEffect,
+	usePostEffect,
+	useRef,
+	useResume,
+	useDispatch,
+	useGetSet
 }
