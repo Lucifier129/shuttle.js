@@ -1,7 +1,8 @@
 const { usable, useGetSet, useEffect, usePostEffect } = require('./index')
 
-let instance = usable(() => {
+let instance = usable(context => {
 	let [getCount, setCount] = useGetSet(10)
+	console.log('context', context)
 	usePostEffect(() => {
 		console.log('effect')
 		let timer = setInterval(() => setCount(getCount() + 1), 1000)
@@ -19,4 +20,8 @@ instance.subscribe(state => {
 	if (state === 20) instance.unsubscribe()
 })
 
-instance.run()
+instance.run(123)
+
+setTimeout(() => {
+	instance.run(456)
+}, 2000)

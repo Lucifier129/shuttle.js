@@ -88,7 +88,7 @@ const makeEffectList = () => {
 const runnable = producer => {
 	let runing = false
 	let rerun = false
-	let run = () => {
+	let run = context => {
 		if (runing) {
 			rerun = true
 			return
@@ -96,15 +96,16 @@ const runnable = producer => {
 
 		let result
 		try {
+			env = { context }
 			runing = true
-			result = producer()
+			result = producer(context)
 		} finally {
 			runing = false
 		}
 
 		if (rerun) {
 			rerun = false
-			return run()
+			return run(context)
 		}
 		return result
 	}
@@ -112,10 +113,13 @@ const runnable = producer => {
 }
 
 const resumable = producer => {
-	let { run } = runnable(() => {
+	let currentContext = null
+	let resume = () => run(currentContext)
+	let { run } = runnable(context => {
 		try {
-			env = { resume: run }
-			return producer()
+			env = { ...env, resume }
+			currentContext = env.context
+			return producer(context)
 		} finally {
 			env = null
 		}
@@ -125,11 +129,11 @@ const resumable = producer => {
 
 const referencable = producer => {
 	let refList = makeRefList()
-	return resumable(() => {
+	return resumable(context => {
 		env = { ...env, refList }
 		try {
 			refList.reset()
-			return producer()
+			return producer(context)
 		} finally {
 			refList.reset()
 		}
@@ -138,11 +142,11 @@ const referencable = producer => {
 
 const statable = producer => {
 	let stateList = makeStateList()
-	return referencable(() => {
+	return referencable(context => {
 		env = { ...env, stateList }
 		try {
 			stateList.reset()
-			return producer()
+			return producer(context)
 		} finally {
 			stateList.reset()
 		}
@@ -151,11 +155,11 @@ const statable = producer => {
 
 const effectable = producer => {
 	let effectList = makeEffectList()
-	return statable(() => {
+	return statable(context => {
 		env = { ...env, effectList }
 		try {
 			effectList.reset()
-			return producer()
+			return producer(context)
 		} finally {
 			effectList.reset()
 		}
@@ -176,8 +180,8 @@ const observable = producer => {
 	let unsubscribe = () => {
 		listener = null
 	}
-	let result = effectable(() => {
-		let result = producer()
+	let result = effectable(context => {
+		let result = producer(context)
 		if (listener) {
 			listener(result)
 		}
@@ -194,10 +198,10 @@ const dispatchable = producer => {
 		}
 		effectList.each(effect => effect.perform(action, payload))
 	}
-	let result = observable(() => {
+	let result = observable(context => {
 		env = { ...env, dispatch }
 		effectList = env.effectList
-		return producer()
+		return producer(context)
 	})
 	let unsubscribe = () => {
 		result.unsubscribe()
@@ -213,8 +217,8 @@ const dispatchable = producer => {
 
 const POST = Symbol.for('@sukkula/post')
 const usable = producer => {
-	return dispatchable(() => {
-		let result = producer()
+	return dispatchable(context => {
+		let result = producer(context)
 		env.dispatch(POST)
 		return result
 	})
