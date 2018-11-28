@@ -1,4 +1,4 @@
-const { shallowEqualList, makeList, makeDict } = require('./util')
+const { shallowEqualList, isThenable, makeList, makeDict } = require('./util')
 
 let env = null
 const getEnv = () => env
@@ -249,9 +249,27 @@ const subscribable = producer => {
   return { ...result, subscribe, unsubscribe }
 }
 
+const suspensible = producer => {
+  let result = subscribable(producer)
+  let subscribe = (handleNext, handleFinish, handleEffect) => {
+    return result.subscribe(handleNext, handleFinish, (effect, resume) => {
+      if (isThenable(effect)) {
+        effect.then(() => resume)
+        return
+      }
+      if (typeof handleEffect === 'function') {
+        handleEffect(effect, resume)
+        return
+      }
+      throw effect
+    })
+  }
+  return { ...result, subscribe }
+}
+
 const PRE_EFFECT = Symbol.for('@sukkula/pre-effect')
 const interruptible = producer => {
-  let result = subscribable(producer)
+  let result = suspensible(producer)
   let subscribe = (handleNext, handleFinish, handleEffect) => {
     return result.subscribe(handleNext, handleFinish, (effect, resume) => {
       if (effect === PRE_EFFECT) {
