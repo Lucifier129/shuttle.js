@@ -1,27 +1,40 @@
-const { usable, useGetSet, useEffect, usePostEffect } = require('./index')
+const {
+	run,
+	subscribe,
+	unsubscribe,
+	usable,
+	useState,
+	useGetSet,
+	useEffect,
+	usePostEffect,
+	useDispatch
+} = require('./index')
 
-let instance = usable(context => {
-	let [getCount, setCount] = useGetSet(10)
-	console.log('context', context)
+const count$ = usable(props => {
+	let [count, setCount] = useState(props.count)
+	let dispatch = useDispatch()
+
+	useEffect('incre', () => setCount(count + 1))
+
+	useEffect('decre', () => setCount(count - 1))
+
 	usePostEffect(() => {
-		console.log('effect')
-		let timer = setInterval(() => setCount(getCount() + 1), 1000)
-		return () => {
-			console.log('clear')
-			clearInterval(timer)
-		}
+		let timer = setInterval(() => dispatch('incre'), 1000)
+		return () => clearInterval(timer)
 	}, [])
 
-	return getCount()
+	return count
 })
 
-instance.subscribe(state => {
-	console.log('state', state)
-	if (state === 20) instance.unsubscribe()
+subscribe({
+	source: count$,
+	next: count => {
+		console.log('count', count)
+		if (count === 20) unsubscribe()
+	},
+	finish: count => {
+		console.log('last-count', count)
+	}
 })
 
-instance.run(123)
-
-setTimeout(() => {
-	instance.run(456)
-}, 2000)
+run(count$, { count: 10 })

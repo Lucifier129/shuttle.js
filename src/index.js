@@ -1,5 +1,13 @@
 const { usable, getEnv, actions } = require('./core')
 
+const useProps = () => {
+	let env = getEnv()
+	if (!env) {
+		throw new Error(`You can't use useProps outside the usable function`)
+	}
+	return env.props
+}
+
 const useRef = initialValue => {
 	let env = getEnv()
 	if (!env) {
@@ -80,7 +88,45 @@ const usePostEffect = (handler, argList) => {
 	useEffect(actions.POST, handler, argList)
 }
 
+const useUnsubscribe = () => {
+	let env = getEnv()
+	if (!env) {
+		throw new Error(`You can't use useUnsubscribe outside the usable function`)
+	}
+	return env.unsubscribe
+}
+
+const run = (runnable, props) => {
+	return runnable.run(props)
+}
+
+const subscribe = (subscribable, onNext, onFinish) => {
+	if (typeof subscribable === 'object') {
+		onFinish = subscribable.finish
+		onNext = subscribable.next
+		subscribable = subscribable.source
+	}
+	return subscribable.subscribe(onNext, onFinish)
+}
+
+const unsubscribe = subscribable => {
+	if (subscribable) {
+		subscribable.unsubscribe()
+		return
+	}
+	let unsubscribe = useUnsubscribe()
+	unsubscribe()
+}
+
+const dispatch = (dispatchable, action, payload) => {
+	return dispatchable.dispatch(action, payload)
+}
+
 module.exports = {
+	run,
+	subscribe,
+	unsubscribe,
+	dispatch,
 	usable,
 	useState,
 	useEffect,
@@ -88,5 +134,7 @@ module.exports = {
 	useRef,
 	useResume,
 	useDispatch,
-	useGetSet
+	useGetSet,
+	useProps,
+	useUnsubscribe
 }

@@ -88,7 +88,7 @@ const makeEffectList = () => {
 const runnable = producer => {
 	let runing = false
 	let rerun = false
-	let run = context => {
+	let run = props => {
 		if (runing) {
 			rerun = true
 			return
@@ -96,16 +96,16 @@ const runnable = producer => {
 
 		let result
 		try {
-			env = { context }
+			env = { props }
 			runing = true
-			result = producer(context)
+			result = producer(props)
 		} finally {
 			runing = false
 		}
 
 		if (rerun) {
 			rerun = false
-			return run(context)
+			return run(props)
 		}
 		return result
 	}
@@ -113,13 +113,13 @@ const runnable = producer => {
 }
 
 const resumable = producer => {
-	let currentContext = null
-	let resume = () => run(currentContext)
-	let { run } = runnable(context => {
+	let currentProps = null
+	let resume = () => run(currentProps)
+	let { run } = runnable(props => {
 		try {
 			env = { ...env, resume }
-			currentContext = env.context
-			return producer(context)
+			currentProps = env.props
+			return producer(props)
 		} finally {
 			env = null
 		}
@@ -129,11 +129,11 @@ const resumable = producer => {
 
 const referencable = producer => {
 	let refList = makeRefList()
-	return resumable(context => {
+	return resumable(props => {
 		env = { ...env, refList }
 		try {
 			refList.reset()
-			return producer(context)
+			return producer(props)
 		} finally {
 			refList.reset()
 		}
@@ -142,11 +142,11 @@ const referencable = producer => {
 
 const statable = producer => {
 	let stateList = makeStateList()
-	return referencable(context => {
+	return referencable(props => {
 		env = { ...env, stateList }
 		try {
 			stateList.reset()
-			return producer(context)
+			return producer(props)
 		} finally {
 			stateList.reset()
 		}
@@ -155,37 +155,55 @@ const statable = producer => {
 
 const effectable = producer => {
 	let effectList = makeEffectList()
-	return statable(context => {
+	return statable(props => {
 		env = { ...env, effectList }
 		try {
 			effectList.reset()
-			return producer(context)
+			return producer(props)
 		} finally {
 			effectList.reset()
 		}
 	})
 }
 
-const observable = producer => {
-	let listener = null
-	let subscribe = f => {
-		if (listener) {
+const noop = () => {}
+const subscribable = producer => {
+	let lastResult
+	let onNext = null
+	let onFinish = null
+	let subscribe = (next = noop, finish = noop) => {
+		if (onNext) {
 			throw new Error('Too much subscriber')
 		}
-		if (typeof f !== 'function') {
-			throw new Error('listener must be function')
+
+		if (typeof next !== 'function') {
+			let message = `first argument of subscribe must be a function instead of ${next}`
+			throw new Error(message)
 		}
-		listener = f
+
+		if (typeof finish !== 'function') {
+			let message = `second argument of subscribe must be a function instead of ${finish}`
+			throw new Error(message)
+		}
+
+		onNext = next
+		onFinish = finish
 	}
 	let unsubscribe = () => {
-		listener = null
-	}
-	let result = effectable(context => {
-		let result = producer(context)
-		if (listener) {
-			listener(result)
+		onNext = null
+		let finish = onFinish
+		onFinish = null
+		if (finish) {
+			finish(lastResult)
 		}
-		return result
+	}
+	let result = effectable(props => {
+		env = { ...env, unsubscribe }
+		lastResult = producer(props)
+		if (onNext) {
+			onNext(lastResult)
+		}
+		return lastResult
 	})
 	return { ...result, subscribe, unsubscribe }
 }
@@ -198,14 +216,14 @@ const dispatchable = producer => {
 		}
 		effectList.each(effect => effect.perform(action, payload))
 	}
-	let result = observable(context => {
-		env = { ...env, dispatch }
+	let result = subscribable(props => {
+		env = { ...env, dispatch, unsubscribe }
 		effectList = env.effectList
-		return producer(context)
+		return producer(props)
 	})
 	let unsubscribe = () => {
-		result.unsubscribe()
 		effectList.each(effect => effect.clean())
+		result.unsubscribe()
 	}
 
 	return {
@@ -217,11 +235,12 @@ const dispatchable = producer => {
 
 const POST = Symbol.for('@sukkula/post')
 const usable = producer => {
-	return dispatchable(context => {
-		let result = producer(context)
+	let result = dispatchable(props => {
+		let result = producer(props)
 		env.dispatch(POST)
 		return result
 	})
+	return { ...result, producer }
 }
 
 const actions = {
