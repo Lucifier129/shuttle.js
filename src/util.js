@@ -72,6 +72,88 @@ const makeDict = (initialDict = {}) => {
   return { exist, get, set, getAll }
 }
 
+const makeRefList = () => {
+  let refList = makeList()
+  let get = initialValue => {
+    if (!refList.exist()) {
+      refList.set({ current: initialValue })
+    }
+    return refList.get()
+  }
+  return { ...refList, get }
+}
+
+const makeStateList = () => {
+  let stateList = makeList()
+  let get = initialState => {
+    if (!stateList.exist()) {
+      let pair = [initialState, value => (pair[0] = value)]
+      stateList.set(pair)
+    }
+    return stateList.get()
+  }
+
+  return { ...stateList, get }
+}
+
+const makeEffect = (action, handler, argList) => {
+  let performed = false
+  let cleanUp = null
+  let clean = () => {
+    if (cleanUp) {
+      let fn = cleanUp
+      cleanUp = null
+      fn()
+    }
+  }
+  let perform = (action, payload) => {
+    if (effect.action !== action || performed) {
+      return
+    }
+    clean()
+    performed = true
+    let result = effect.handler.call(null, payload, action)
+    if (typeof result === 'function') {
+      cleanUp = result
+    }
+  }
+  let update = (action, handler, argList) => {
+    let isEqualAction = effect.action === action
+    let isEqualArgList = shallowEqualList(effect.argList, argList)
+
+    if (!isEqualAction || !isEqualArgList) {
+      effect.handler = handler
+      performed = false
+    }
+
+    effect.action = action
+    effect.argList = argList
+  }
+  let effect = {
+    action,
+    handler,
+    argList,
+    clean,
+    perform,
+    update
+  }
+  return effect
+}
+
+const makeEffectList = () => {
+  let effectList = makeList()
+  let get = (action, handler, argList) => {
+    if (!effectList.exist()) {
+      effectList.set(makeEffect(action, handler, argList))
+    }
+    let effect = effectList.get()
+    effect.update(action, handler, argList)
+    return effect
+  }
+
+  return { ...effectList, get }
+}
+
 const isThenable = obj => !!(obj && typeof obj.then === 'function')
 
 module.exports = {
@@ -79,5 +161,8 @@ module.exports = {
   shallowEqual,
   shallowEqualList,
   makeList,
-  makeDict
+  makeDict,
+  makeRefList,
+  makeStateList,
+  makeEffectList
 }

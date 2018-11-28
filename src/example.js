@@ -29,8 +29,7 @@ const count$ = usable(props => {
   return count
 })
 
-subscribe({
-  source: count$,
+subscribe(count$, {
   next: count => {
     console.log('count', count)
     if (count === 20) unsubscribe()
@@ -40,6 +39,7 @@ subscribe({
   },
   effect: effect => {
     console.log('effect', effect)
+    throw effect
   }
 })
 

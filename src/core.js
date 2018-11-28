@@ -1,90 +1,13 @@
-const { shallowEqualList, isThenable, makeList, makeDict } = require('./util')
 const { PRE_EXECUTE, POST_EXECUTE } = require('./actions')
+const {
+  isThenable,
+  makeRefList,
+  makeStateList,
+  makeEffectList
+} = require('./util')
 
 let env = null
 const getEnv = () => env
-
-const makeRefList = () => {
-  let refList = makeList()
-  let get = initialValue => {
-    if (!refList.exist()) {
-      refList.set({ current: initialValue })
-    }
-    return refList.get()
-  }
-  return { ...refList, get }
-}
-
-const makeStateList = () => {
-  let stateList = makeList()
-  let get = initialState => {
-    if (!stateList.exist()) {
-      let pair = [initialState, value => (pair[0] = value)]
-      stateList.set(pair)
-    }
-    return stateList.get()
-  }
-
-  return { ...stateList, get }
-}
-
-const makeEffect = (action, handler, argList) => {
-  let performed = false
-  let cleanUp = null
-  let clean = () => {
-    if (cleanUp) {
-      let fn = cleanUp
-      cleanUp = null
-      fn()
-    }
-  }
-  let perform = (action, payload) => {
-    if (effect.action !== action || performed) {
-      return
-    }
-    clean()
-    performed = true
-    let result = effect.handler.call(null, payload, action)
-    if (typeof result === 'function') {
-      cleanUp = result
-    }
-  }
-  let update = (action, handler, argList) => {
-    let isEqualAction = effect.action === action
-    let isEqualArgList = shallowEqualList(effect.argList, argList)
-
-    if (!isEqualAction || !isEqualArgList) {
-      effect.handler = handler
-      performed = false
-    }
-
-    effect.action = action
-    effect.argList = argList
-  }
-  let effect = {
-    action,
-    handler,
-    argList,
-    clean,
-    perform,
-    update
-  }
-  return effect
-}
-
-const makeEffectList = () => {
-  let effectList = makeList()
-  let get = (action, handler, argList) => {
-    if (!effectList.exist()) {
-      effectList.set(makeEffect(action, handler, argList))
-    }
-    let effect = effectList.get()
-    effect.update(action, handler, argList)
-    return effect
-  }
-
-  return { ...effectList, get }
-}
 
 const runnable = producer => {
   let runing = false
@@ -125,12 +48,12 @@ const resumable = producer => {
       env = null
     }
   })
-  return source
+  return { ...source, resume }
 }
 
 const referencable = producer => {
   let refList = makeRefList()
-  return resumable(props => {
+  let source = resumable(props => {
     env = { ...env, refList }
     try {
       refList.reset()
@@ -139,11 +62,12 @@ const referencable = producer => {
       refList.reset()
     }
   })
+  return { ...source, refList }
 }
 
 const statable = producer => {
   let stateList = makeStateList()
-  return referencable(props => {
+  let source = referencable(props => {
     env = { ...env, stateList }
     try {
       stateList.reset()
@@ -152,11 +76,12 @@ const statable = producer => {
       stateList.reset()
     }
   })
+  return { ...source, stateList }
 }
 
 const effectable = producer => {
   let effectList = makeEffectList()
-  return statable(props => {
+  let source = statable(props => {
     env = { ...env, effectList }
     try {
       effectList.reset()
@@ -165,35 +90,32 @@ const effectable = producer => {
       effectList.reset()
     }
   })
+  return { ...source, effectList }
 }
 
 const dispatchable = producer => {
-  let effectList = null
   let dispatch = (action, payload) => {
-    if (!effectList) {
-      throw new Error('effect list is empty')
-    }
+    let { effectList } = source
     effectList.each(effect => effect.perform(action, payload))
+  }
+  let clean = () => {
+    let { effectList } = source
+    effectList.each(effect => effect.clean())
   }
   let source = effectable(props => {
     env = { ...env, dispatch }
-    effectList = env.effectList
     return producer(props)
   })
-  let clean = () => {
-    effectList.each(effect => effect.clean())
-  }
-
   return {
     ...source,
-    clean,
-    dispatch
+    dispatch,
+    clean
   }
 }
 
 const noop = () => {}
+const PENDING = {}
 const subscribable = producer => {
-  let lastResult
   let onNext = null
   let onFinish = null
   let onEffect = null
@@ -228,26 +150,46 @@ const subscribable = producer => {
     onEffect = null
     source.clean()
     if (finish) {
-      finish(lastResult)
+      finish()
+    }
+  }
+  let dispatch = (action, payload) => {
+    if (onEffect) {
+      let effect = { action, payload }
+      try {
+        onEffect(effect, source.resume)
+      } catch (error) {
+        if (error === effect) {
+          source.dispatch(action, payload)
+        } else {
+          throw error
+        }
+      }
+    } else {
+      source.dispatch(action, payload)
     }
   }
   let source = dispatchable(props => {
-    env = { ...env, unsubscribe }
+    env = { ...env, dispatch, unsubscribe }
+    let result
     try {
-      lastResult = producer(props)
+      result = producer(props)
     } catch (effect) {
       if (!onEffect) {
         throw effect
       }
-      onEffect(effect, env.resume)
-      return lastResult
+      if (effect instanceof Error) {
+        
+      }
+      onEffect(effect, source.resume)
+      return PENDING
     }
     if (onNext) {
-      onNext(lastResult)
+      onNext(result)
     }
-    return lastResult
+    return result
   })
-  return { ...source, subscribe, unsubscribe }
+  return { ...source, dispatch, subscribe, unsubscribe }
 }
 
 const suspensible = producer => {
@@ -287,14 +229,15 @@ const interruptible = producer => {
 
 const usable = producer => {
   let source = interruptible(props => {
-    let source = producer(props)
+    let result = producer(props)
     env.dispatch(POST_EXECUTE)
-    return source
+    return result
   })
   return { ...source, producer }
 }
 
 module.exports = {
+  PENDING,
   getEnv,
   usable
 }

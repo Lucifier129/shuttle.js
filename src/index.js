@@ -1,4 +1,4 @@
-const { usable, getEnv } = require('./core')
+const { usable, getEnv, PENDING } = require('./core')
 const { POST_EXECUTE } = require('./actions')
 
 const useProps = () => {
@@ -99,17 +99,20 @@ const useUnsubscribe = () => {
 }
 
 const run = (runnable, props) => {
-  return runnable.run(props)
+  let result = runnable.run(props)
+  if (result === PENDING) {
+    return { status: 0 }
+  }
+  return { status: 1, value: result }
 }
 
 const subscribe = (subscribable, onNext, onFinish, onEffect) => {
-  if (typeof subscribable === 'object') {
-    onFinish = subscribable.finish
-    onNext = subscribable.next
-    onEffect = subscribable.effect
-    subscribable = subscribable.source
+  if (typeof onNext === 'object') {
+    onFinish = onNext.finish
+    onEffect = onNext.effect
+    onNext = onNext.next
   }
-  return subscribable.subscribe(onNext, onFinish, onEffect)
+  subscribable.subscribe(onNext, onFinish, onEffect)
 }
 
 const unsubscribe = subscribable => {
@@ -122,7 +125,7 @@ const unsubscribe = subscribable => {
 }
 
 const dispatch = (dispatchable, action, payload) => {
-  return dispatchable.dispatch(action, payload)
+  dispatchable.dispatch(action, payload)
 }
 
 module.exports = {
