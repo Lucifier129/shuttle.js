@@ -1,4 +1,5 @@
 const { shallowEqualList, isThenable, makeList, makeDict } = require('./util')
+const { PRE_EXECUTE, POST_EXECUTE } = require('./actions')
 
 let env = null
 const getEnv = () => env
@@ -114,8 +115,8 @@ const runnable = producer => {
 
 const resumable = producer => {
   let currentProps = null
-  let resume = () => result.run(currentProps)
-  let result = runnable(props => {
+  let resume = () => source.run(currentProps)
+  let source = runnable(props => {
     try {
       env = { ...env, resume }
       currentProps = env.props
@@ -124,7 +125,7 @@ const resumable = producer => {
       env = null
     }
   })
-  return result
+  return source
 }
 
 const referencable = producer => {
@@ -174,7 +175,7 @@ const dispatchable = producer => {
     }
     effectList.each(effect => effect.perform(action, payload))
   }
-  let result = effectable(props => {
+  let source = effectable(props => {
     env = { ...env, dispatch }
     effectList = env.effectList
     return producer(props)
@@ -184,7 +185,7 @@ const dispatchable = producer => {
   }
 
   return {
-    ...result,
+    ...source,
     clean,
     dispatch
   }
@@ -225,12 +226,12 @@ const subscribable = producer => {
     onNext = null
     onFinish = null
     onEffect = null
-    result.clean()
+    source.clean()
     if (finish) {
       finish(lastResult)
     }
   }
-  let result = dispatchable(props => {
+  let source = dispatchable(props => {
     env = { ...env, unsubscribe }
     try {
       lastResult = producer(props)
@@ -239,22 +240,22 @@ const subscribable = producer => {
         throw effect
       }
       onEffect(effect, env.resume)
-      return
+      return lastResult
     }
     if (onNext) {
       onNext(lastResult)
     }
     return lastResult
   })
-  return { ...result, subscribe, unsubscribe }
+  return { ...source, subscribe, unsubscribe }
 }
 
 const suspensible = producer => {
-  let result = subscribable(producer)
+  let source = subscribable(producer)
   let subscribe = (handleNext, handleFinish, handleEffect) => {
-    return result.subscribe(handleNext, handleFinish, (effect, resume) => {
+    return source.subscribe(handleNext, handleFinish, (effect, resume) => {
       if (isThenable(effect)) {
-        effect.then(() => resume)
+        effect.then(() => resume())
         return
       }
       if (typeof handleEffect === 'function') {
@@ -264,15 +265,14 @@ const suspensible = producer => {
       throw effect
     })
   }
-  return { ...result, subscribe }
+  return { ...source, subscribe }
 }
 
-const PRE_EFFECT = Symbol.for('@sukkula/pre-effect')
 const interruptible = producer => {
-  let result = suspensible(producer)
+  let source = suspensible(producer)
   let subscribe = (handleNext, handleFinish, handleEffect) => {
-    return result.subscribe(handleNext, handleFinish, (effect, resume) => {
-      if (effect === PRE_EFFECT) {
+    return source.subscribe(handleNext, handleFinish, (effect, resume) => {
+      if (effect === PRE_EXECUTE) {
         return // just ignore it, effect had done in producer
       }
       if (typeof handleEffect === 'function') {
@@ -282,25 +282,19 @@ const interruptible = producer => {
       throw effect
     })
   }
-  return { ...result, subscribe }
+  return { ...source, subscribe }
 }
 
-const POST_EFFECT = Symbol.for('@sukkula/post-effect')
 const usable = producer => {
-  let result = interruptible(props => {
-    let result = producer(props)
-    env.dispatch(POST_EFFECT)
-    return result
+  let source = interruptible(props => {
+    let source = producer(props)
+    env.dispatch(POST_EXECUTE)
+    return source
   })
-  return { ...result, producer }
-}
-
-const actions = {
-  POST_EFFECT
+  return { ...source, producer }
 }
 
 module.exports = {
   getEnv,
-  usable,
-  actions
+  usable
 }

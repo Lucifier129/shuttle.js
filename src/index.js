@@ -1,4 +1,5 @@
-const { usable, getEnv, actions } = require('./core')
+const { usable, getEnv } = require('./core')
+const { POST_EXECUTE } = require('./actions')
 
 const useProps = () => {
   let env = getEnv()
@@ -81,11 +82,12 @@ const useEffect = (action, handler, argList) => {
   if (!env) {
     throw new Error(`You can't use useEffect outside the usable function`)
   }
+  if (typeof action === 'function') {
+    argList = handler
+    handler = action
+    action = POST_EXECUTE
+  }
   env.effectList.get(action, handler, argList)
-}
-
-const usePostEffect = (handler, argList) => {
-  useEffect(actions.POST_EFFECT, handler, argList)
 }
 
 const useUnsubscribe = () => {
@@ -132,7 +134,6 @@ module.exports = {
 
   useState,
   useEffect,
-  usePostEffect,
   useRef,
   useResume,
   useDispatch,

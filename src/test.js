@@ -6,7 +6,6 @@ const {
   useState,
   useGetSet,
   useEffect,
-  usePostEffect,
   useDispatch
 } = require('./index')
 
@@ -18,7 +17,7 @@ const count$ = usable(props => {
 
   useEffect('decre', () => setCount(count - 1))
 
-  usePostEffect(() => {
+  useEffect(() => {
     let timer = setInterval(() => dispatch('incre'), 1000)
     return () => clearInterval(timer)
   }, [])
