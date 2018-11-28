@@ -1,5 +1,5 @@
-const PRE_EXECUTE = Symbol('pre-execute')
-const POST_EXECUTE = Symbol('post-execute')
+const PRE_EXECUTE = '@sukkula/pre-execute'
+const POST_EXECUTE = '@sukkula/post-execute'
 
 module.exports = {
   PRE_EXECUTE,
