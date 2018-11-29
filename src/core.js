@@ -1,243 +1,263 @@
 const { PRE_EXECUTE, POST_EXECUTE } = require('./actions')
 const {
-  isThenable,
-  makeRefList,
-  makeStateList,
-  makeEffectList
+	noop,
+	deferred,
+	isThenable,
+	makeRefList,
+	makeStateList,
+	makeEffectList
 } = require('./util')
 
 let env = null
 const getEnv = () => env
 
 const runnable = producer => {
-  let runing = false
-  let rerun = false
-  let run = props => {
-    if (runing) {
-      rerun = true
-      return
-    }
+	let runing = false
+	let rerun = false
+	let run = props => {
+		if (runing) {
+			rerun = true
+			return
+		}
 
-    let result
-    try {
-      env = { props }
-      runing = true
-      result = producer(props)
-    } finally {
-      runing = false
-    }
+		let result
+		try {
+			env = { props }
+			runing = true
+			result = producer(props)
+		} finally {
+			runing = false
+		}
 
-    if (rerun) {
-      rerun = false
-      return run(props)
-    }
-    return result
-  }
-  return { run }
+		if (rerun) {
+			rerun = false
+			return run(props)
+		}
+		return result
+	}
+	return { run }
 }
 
 const resumable = producer => {
-  let currentProps = null
-  let resume = () => source.run(currentProps)
-  let source = runnable(props => {
-    try {
-      env = { ...env, resume }
-      currentProps = env.props
-      return producer(props)
-    } finally {
-      env = null
-    }
-  })
-  return { ...source, resume }
+	let currentProps
+	let resume = () => source.run(currentProps)
+	let source = runnable(props => {
+		currentProps = props
+		try {
+			env = { ...env, resume }
+			return producer(props)
+		} finally {
+			env = null
+		}
+	})
+	return { ...source, resume }
 }
 
 const referencable = producer => {
-  let refList = makeRefList()
-  let source = resumable(props => {
-    env = { ...env, refList }
-    try {
-      refList.reset()
-      return producer(props)
-    } finally {
-      refList.reset()
-    }
-  })
-  return { ...source, refList }
+	let refList = makeRefList()
+	let source = resumable(props => {
+		env = { ...env, refList }
+		try {
+			refList.reset()
+			return producer(props)
+		} finally {
+			refList.reset()
+		}
+	})
+	return { ...source, refList }
 }
 
 const statable = producer => {
-  let stateList = makeStateList()
-  let source = referencable(props => {
-    env = { ...env, stateList }
-    try {
-      stateList.reset()
-      return producer(props)
-    } finally {
-      stateList.reset()
-    }
-  })
-  return { ...source, stateList }
+	let stateList = makeStateList()
+	let source = referencable(props => {
+		env = { ...env, stateList }
+		try {
+			stateList.reset()
+			return producer(props)
+		} finally {
+			stateList.reset()
+		}
+	})
+	return { ...source, stateList }
 }
 
 const effectable = producer => {
-  let effectList = makeEffectList()
-  let source = statable(props => {
-    env = { ...env, effectList }
-    try {
-      effectList.reset()
-      return producer(props)
-    } finally {
-      effectList.reset()
-    }
-  })
-  return { ...source, effectList }
+	let effectList = makeEffectList()
+	let perform = (action, payload) => {
+		effectList.each(effect => effect.perform(action, payload))
+	}
+	let clean = () => {
+		effectList.each(effect => effect.clean())
+	}
+	let source = statable(props => {
+		env = { ...env, effectList, perform }
+		try {
+			effectList.reset()
+			return producer(props)
+		} finally {
+			effectList.reset()
+		}
+	})
+	return { ...source, perform, clean }
 }
 
-const dispatchable = producer => {
-  let dispatch = (action, payload) => {
-    let { effectList } = source
-    effectList.each(effect => effect.perform(action, payload))
-  }
-  let clean = () => {
-    let { effectList } = source
-    effectList.each(effect => effect.clean())
-  }
-  let source = effectable(props => {
-    env = { ...env, dispatch }
-    return producer(props)
-  })
-  return {
-    ...source,
-    dispatch,
-    clean
-  }
+const catchable = producer => {
+	let handlerList = []
+	let handleCatch = (target, resume) => {
+		let index = 0
+		while (index < handlerList.length) {
+			try {
+				return handlerList[index](target, resume)
+			} catch (error) {
+				if (error === target) {
+					index += 1
+				} else {
+					throw error
+				}
+			}
+		}
+		throw target
+	}
+	let onCatch = f => {
+		if (typeof f !== 'function') {
+			throw new Error(`handleCatch must be a function`)
+		}
+		handlerList.push(f)
+		return () => {
+			let index = handlerList.indexOf(f)
+			if (index !== -1) {
+				handlerList.splice(index, 1)
+			}
+		}
+	}
+	let offCatch = () => (handlerList.length = 0)
+	let source = effectable(props => {
+		try {
+			return producer(props)
+		} catch (target) {
+			if (handleCatch) {
+				return handleCatch(target, source.resume)
+			} else {
+				throw target
+			}
+		}
+	})
+	return { ...source, onCatch, offCatch }
 }
 
-const noop = () => {}
-const PENDING = {}
-const subscribable = producer => {
-  let onNext = null
-  let onFinish = null
-  let onEffect = null
-  let subscribe = (handleNext = noop, handleFinish = noop, handleEffect) => {
-    if (onNext) {
-      throw new Error('can not subscribe twice')
-    }
+const iterable = producer => {
+	let handlerList = []
+	let handleNext = value => {
+		handlerList.forEach(handler => handler(value))
+	}
+	let onNext = f => {
+		if (typeof f !== 'function') {
+			throw new Error(`handleNext must be a function`)
+		}
+		handlerList.push(f)
+		return () => {
+			let index = handlerList.indexOf(f)
+			if (index !== -1) {
+				handlerList.splice(index, 1)
+			}
+		}
+	}
+	let offNext = () => (handlerList.length = 0)
+	let source = catchable(props => {
+		let result = producer(props)
+		if (handleNext) {
+			handleNext(result)
+		}
+		return result
+	})
+	return { ...source, onNext, offNext }
+}
 
-    if (typeof handleNext !== 'function') {
-      let message = `first argument of subscribe must be a function instead of ${handleNext}`
-      throw new Error(message)
-    }
-
-    if (typeof handleFinish !== 'function') {
-      let message = `second argument of subscribe must be a function instead of ${handleFinish}`
-      throw new Error(message)
-    }
-
-    if (handleEffect != null && typeof handleEffect !== 'function') {
-      let message = `third argument of subscribe must be a function instead of ${handleEffect}`
-      throw new Error(message)
-    }
-
-    onNext = handleNext
-    onFinish = handleFinish
-    onEffect = handleEffect
-  }
-  let unsubscribe = () => {
-    let finish = onFinish
-    onNext = null
-    onFinish = null
-    onEffect = null
-    source.clean()
-    if (finish) {
-      finish()
-    }
-  }
-  let dispatch = (action, payload) => {
-    if (onEffect) {
-      let effect = { action, payload }
-      try {
-        onEffect(effect, source.resume)
-      } catch (error) {
-        if (error === effect) {
-          source.dispatch(action, payload)
-        } else {
-          throw error
-        }
-      }
-    } else {
-      source.dispatch(action, payload)
-    }
-  }
-  let source = dispatchable(props => {
-    env = { ...env, dispatch, unsubscribe }
-    let result
-    try {
-      result = producer(props)
-    } catch (effect) {
-      if (!onEffect) {
-        throw effect
-      }
-      if (effect instanceof Error) {
-        
-      }
-      onEffect(effect, source.resume)
-      return PENDING
-    }
-    if (onNext) {
-      onNext(result)
-    }
-    return result
-  })
-  return { ...source, dispatch, subscribe, unsubscribe }
+const errorrable = producer => {
+	let offList = []
+	let onError = handleError => {
+		if (typeof handleError !== 'function') {
+			throw new Error(`handleError must be a function`)
+		}
+		let off = source.onCatch((target, resume) => {
+			if (target instanceof Error) {
+				return handleError(target, resume)
+			}
+			throw target
+		})
+		offList.push(off)
+		return off
+	}
+	let offError = () => {
+		let list = offList
+		offList = []
+		list.forEach(off => off())
+	}
+	let source = iterable(producer)
+	return { ...source, onError, offError }
 }
 
 const suspensible = producer => {
-  let source = subscribable(producer)
-  let subscribe = (handleNext, handleFinish, handleEffect) => {
-    return source.subscribe(handleNext, handleFinish, (effect, resume) => {
-      if (isThenable(effect)) {
-        effect.then(() => resume())
-        return
-      }
-      if (typeof handleEffect === 'function') {
-        handleEffect(effect, resume)
-        return
-      }
-      throw effect
-    })
-  }
-  return { ...source, subscribe }
+	let source = errorrable(producer)
+	source.onCatch((target, resume) => {
+		if (isThenable(target)) {
+			return target.then(() => resume())
+		}
+		throw target
+	})
+	return source
 }
 
-const interruptible = producer => {
-  let source = suspensible(producer)
-  let subscribe = (handleNext, handleFinish, handleEffect) => {
-    return source.subscribe(handleNext, handleFinish, (effect, resume) => {
-      if (effect === PRE_EXECUTE) {
-        return // just ignore it, effect had done in producer
-      }
-      if (typeof handleEffect === 'function') {
-        handleEffect(effect, resume)
-        return
-      }
-      throw effect
-    })
-  }
-  return { ...source, subscribe }
+const subscribable = producer => {
+	let onFinish = null
+	let subscribe = (subscriber = {}) => {
+		if (!subscriber) {
+			let message = `Expected an object, but got ${subscriber} instead`
+			throw new Error(message)
+		}
+
+		if (typeof subscriber.next === 'function') {
+			source.onNext(result => subscriber.next)
+		}
+
+		if (typeof subscriber.error === 'function') {
+			source.onError(subscriber.error)
+		}
+
+		if (typeof subscriber.catch === 'function') {
+			source.onCatch(subscriber.catch)
+		}
+
+		if (typeof subscriber.finish === 'function') {
+			onFinish = handleFinish
+		}
+	}
+	let unsubscribe = () => {
+		let finish = onFinish
+		source.offNext()
+		source.offError()
+		source.offCatch()
+		source.clean()
+		if (finish) {
+			finish()
+		}
+	}
+	let source = suspensible(props => {
+		env = { ...env, unsubscribe }
+		return producer(props)
+	})
+	return { ...source, subscribe, unsubscribe }
 }
 
 const usable = producer => {
-  let source = interruptible(props => {
-    let result = producer(props)
-    env.dispatch(POST_EXECUTE)
-    return result
-  })
-  return { ...source, producer }
+	let source = subscribable(producer)
+	let run = props => {
+		return Promise.resolve(source.run(props))
+	}
+	return { ...source, run, producer }
 }
 
 module.exports = {
-  PENDING,
-  getEnv,
-  usable
+	getEnv,
+	usable
 }
