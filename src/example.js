@@ -10,6 +10,10 @@ const count$ = usable(props => {
 	let [count, setCount] = useState(props.count)
 	let perform = usePerform()
 
+	useEffect((payload, action) => {
+		console.log('effect', { action, payload, count })
+	})
+
 	useEffect('incre', () => setCount(count + 1))
 
 	useEffect('decre', () => setCount(count - 1))

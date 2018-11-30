@@ -1,5 +1,5 @@
 const { usable, getEnv } = require('./core')
-const { NEXT, ERROR, COMPLETE, CATCH } = require('./constant')
+const { NEXT, ERROR, COMPLETE, CATCH, EFFECT } = require('./constant')
 
 const useProps = () => {
 	let env = getEnv()
@@ -47,7 +47,6 @@ const useState = initialState => {
 		throw new Error(`You can't use useState outside the usable function`)
 	}
 	let { stateList } = env
-	// console.log('env', env)
 	let isExisted = stateList.exist()
 	let resume = useResume()
 	let state = stateList.get(initialState)
@@ -94,7 +93,7 @@ const useEffect = (action, handler, argList) => {
 	if (typeof action === 'function') {
 		argList = handler
 		handler = action
-		action = POST_EXECUTE
+		action = EFFECT
 	}
 	env.effectList.get(action, handler, argList)
 }

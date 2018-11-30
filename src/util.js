@@ -1,3 +1,5 @@
+const { EFFECT } = require('./constant')
+
 const shallowEqual = (objA, objB) => {
 	if (objA === objB) {
 		return true
@@ -59,8 +61,17 @@ const makeList = (initialList = []) => {
 	}
 	let set = item => (list[offset] = item)
 	let getAll = () => list
-	let each = f => list.forEach(f)
-	return { exist, get, set, reset, each, getAll }
+	let isDestory = false
+	let each = f => {
+		for (let i = 0; i < list.length; i++) {
+			if (isDestory) return
+			f(list[i])
+		}
+	}
+	let destory = () => {
+		isDestory = true
+	}
+	return { exist, get, set, reset, each, getAll, destory }
 }
 
 const makeDict = (initialDict = {}) => {
@@ -107,11 +118,13 @@ const makeEffect = (action, handler, argList) => {
 		}
 	}
 	let perform = (action, payload) => {
-		if (effect.action !== action) {
-			return false
-		}
-		if (performed) {
-			return true
+		if (effect.action !== EFFECT) {
+			if (effect.action !== action) {
+				return false
+			}
+			if (performed) {
+				return true
+			}
 		}
 		clean()
 		performed = true

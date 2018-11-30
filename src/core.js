@@ -1,4 +1,4 @@
-const { NEXT, ERROR, CATCH, SUSPENSE } = require('./constant')
+const { NEXT, ERROR, CATCH, SUSPENSE, EFFECT } = require('./constant')
 const {
 	noop,
 	pipe,
@@ -43,7 +43,7 @@ const resumable = producer => {
 
 const referencable = producer => {
 	let refList = makeRefList()
-	return props => {
+	let withRef = props => {
 		env = { ...env, refList }
 		try {
 			refList.reset()
@@ -52,11 +52,12 @@ const referencable = producer => {
 			refList.reset()
 		}
 	}
+	return withRef
 }
 
 const statable = producer => {
 	let stateList = makeStateList()
-	return props => {
+	let withState = props => {
 		env = { ...env, stateList }
 		try {
 			stateList.reset()
@@ -65,6 +66,7 @@ const statable = producer => {
 			stateList.reset()
 		}
 	}
+	return withState
 }
 
 const effectable = producer => {
@@ -86,8 +88,9 @@ const effectable = producer => {
 			throw new Error(`You can't cleanup in usable function directly`)
 		}
 		effectList.each(effect => effect.clean())
+		effectList.destory()
 	}
-	return props => {
+	let withEffect = props => {
 		env = { ...env, effectList, perform, clean }
 		try {
 			effectList.reset()
@@ -96,6 +99,7 @@ const effectable = producer => {
 			effectList.reset()
 		}
 	}
+	return withEffect
 }
 
 const hookable = pipe(
@@ -110,7 +114,7 @@ const defaultObserver = {
 	error: null,
 	catch: null,
 	complete: noop,
-	action: noop
+	effect: noop
 }
 
 const observable = observer => producer => {
@@ -120,14 +124,14 @@ const observable = observer => producer => {
 	let isUnsubscribe = false
 	let lastEnv
 	let lastResult
-	let run = hookable(props => {
+	let run = props => {
 		if (isUnsubscribe) return
+		lastEnv = env
+		env = { ...env, perform }
 		try {
 			lastResult = producer(props)
 		} catch (catchable) {
-			lastEnv = env
 			env = null
-
 			// handle error
 			if (catchable instanceof Error) {
 				if (hasErrorHandler) {
@@ -157,13 +161,12 @@ const observable = observer => producer => {
 			}
 			return
 		}
-		lastEnv = env
 		env = null
 		observer.next(lastResult, unsubscribe)
 		if (!isUnsubscribe) {
 			perform(NEXT, lastResult)
 		}
-	})
+	}
 	let unsubscribe = () => {
 		if (isUnsubscribe) return
 		isUnsubscribe = true
@@ -178,12 +181,10 @@ const observable = observer => producer => {
 		if (!lastEnv) {
 			throw new Error(`You are performing effect before calling run method`)
 		}
-		let shouldPerform = observer.action(action, payload)
-		if (shouldPerform !== false) {
-			lastEnv.perform(action, payload)
-		}
+		observer.effect(action, payload)
+		lastEnv.perform(action, payload)
 	}
-	return { run, unsubscribe, perform }
+	return { run: hookable(run), unsubscribe, perform }
 }
 
 const usable = producer => {
