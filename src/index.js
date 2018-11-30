@@ -1,5 +1,5 @@
-const { usable, getEnv, PENDING } = require('./core')
-const { POST_EXECUTE } = require('./actions')
+const { usable, getEnv } = require('./core')
+const { NEXT, ERROR, COMPLETE, CATCH } = require('./constant')
 
 const useProps = () => {
 	let env = getEnv()
@@ -7,14 +7,6 @@ const useProps = () => {
 		throw new Error(`You can't use useProps outside the usable function`)
 	}
 	return env.props
-}
-
-const useRef = initialValue => {
-	let env = getEnv()
-	if (!env) {
-		throw new Error(`You can't use useRef outside the usable function`)
-	}
-	return env.refList.get(initialValue)
 }
 
 const useResume = () => {
@@ -25,12 +17,28 @@ const useResume = () => {
 	return env.resume
 }
 
-const useDispatch = () => {
+const usePerform = () => {
 	let env = getEnv()
 	if (!env) {
-		throw new Error(`You can't use useDispatch outside the usable function`)
+		throw new Error(`You can't use usePerform outside the usable function`)
 	}
-	return env.dispatch
+	return env.perform
+}
+
+const useUnsubscribe = () => {
+	let env = getEnv()
+	if (!env) {
+		throw new Error(`You can't use useUnsubscribe outside the usable function`)
+	}
+	return env.unsubscribe
+}
+
+const useRef = initialValue => {
+	let env = getEnv()
+	if (!env) {
+		throw new Error(`You can't use useRef outside the usable function`)
+	}
+	return env.refList.get(initialValue)
 }
 
 const useState = initialState => {
@@ -39,6 +47,7 @@ const useState = initialState => {
 		throw new Error(`You can't use useState outside the usable function`)
 	}
 	let { stateList } = env
+	// console.log('env', env)
 	let isExisted = stateList.exist()
 	let resume = useResume()
 	let state = stateList.get(initialState)
@@ -90,61 +99,33 @@ const useEffect = (action, handler, argList) => {
 	env.effectList.get(action, handler, argList)
 }
 
-const useUnsubscribe = () => {
-	let env = getEnv()
-	if (!env) {
-		throw new Error(`You can't use useUnsubscribe outside the usable function`)
-	}
-	return env.unsubscribe
+const useOnNext = (handler, argList) => {
+	useEffect(NEXT, handler, argList)
 }
 
-const run = (runnable, props) => {
-	let result = runnable.run(props)
-	if (result === PENDING) {
-		return { status: 0 }
-	}
-	return { status: 1, value: result }
+const useOnError = (handler, argList) => {
+	useEffect(ERROR, handler, argList)
 }
 
-const subscribe = (subscribable, onNext, onFinish, onEffect) => {
-	if (typeof onNext === 'object') {
-		onFinish = onNext.finish
-		onEffect = onNext.effect
-		onNext = onNext.next
-	}
-	subscribable.subscribe(onNext, onFinish, onEffect)
+const useOnComplete = (handler, argList) => {
+	useEffect(COMPLETE, handler, argList)
 }
 
-const unsubscribe = subscribable => {
-	if (subscribable) {
-		subscribable.unsubscribe()
-		return
-	}
-	let unsubscribe = useUnsubscribe()
-	unsubscribe()
-}
-
-const dispatch = (dispatchable, action, payload) => {
-	dispatchable.dispatch(action, payload)
-}
-
-const raise = effect => {
-	throw effect
+const useOnCatch = (handler, argList) => {
+	useEffect(CATCH, handler, argList)
 }
 
 module.exports = {
-	run,
-	raise,
-	subscribe,
-	unsubscribe,
-	dispatch,
 	usable,
-
+	useOnNext,
+	useOnError,
+	useOnComplete,
+	useOnCatch,
 	useState,
 	useEffect,
 	useRef,
 	useResume,
-	useDispatch,
+	usePerform,
 	useGetSet,
 	useProps,
 	useUnsubscribe

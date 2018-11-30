@@ -1,26 +1,25 @@
 const {
-	run,
-	raise,
-	subscribe,
-	unsubscribe,
 	usable,
 	useState,
-	useGetSet,
 	useEffect,
-	useDispatch
+	usePerform,
+	useOnNext
 } = require('./index')
 
-const Count = props => {
+const count$ = usable(props => {
 	let [count, setCount] = useState(props.count)
-	let dispatch = useDispatch()
+	let perform = usePerform()
 
 	useEffect('incre', () => setCount(count + 1))
 
 	useEffect('decre', () => setCount(count - 1))
 
-	useEffect(() => {
-		let timer = setInterval(() => dispatch('incre'), 1000)
-		return () => clearInterval(timer)
+	useOnNext(() => {
+		let timer = setInterval(() => perform('incre'), 1000)
+		return () => {
+			console.log('clear')
+			clearInterval(timer)
+		}
 	}, [])
 
 	if (count === 12) {
@@ -28,26 +27,22 @@ const Count = props => {
 	}
 
 	return count
-}
+})
 
-const count$ = use(Count)
-
-const count1$ = thenable(Count)
-
-Promise.resolve(count1$)
-
-subscribe(count$, {
+let { run, unsubscribe } = count$.subscribe({
 	next: count => {
 		console.log('count', count)
 		if (count === 20) unsubscribe()
 	},
-	finish: count => {
+	complete: count => {
 		console.log('last-count', count)
 	},
-	effect: effect => {
+	error: error => {
+		console.log('error')
+	},
+	catch: effect => {
 		console.log('effect', effect)
-		raise(effect)
 	}
 })
 
-run(count$, { count: 10 })
+run({ count: 10 })

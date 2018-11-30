@@ -107,8 +107,11 @@ const makeEffect = (action, handler, argList) => {
 		}
 	}
 	let perform = (action, payload) => {
-		if (effect.action !== action || performed) {
-			return
+		if (effect.action !== action) {
+			return false
+		}
+		if (performed) {
+			return true
 		}
 		clean()
 		performed = true
@@ -116,6 +119,7 @@ const makeEffect = (action, handler, argList) => {
 		if (typeof result === 'function') {
 			cleanUp = result
 		}
+		return true
 	}
 	let update = (action, handler, argList) => {
 		let isEqualAction = effect.action === action
@@ -166,7 +170,10 @@ const deferred = () => {
 	return { promise, resolve, reject }
 }
 
+const pipe = (...args) => value => args.reduce((value, f) => f(value), value)
+
 module.exports = {
+	pipe,
 	deferred,
 	noop,
 	isThenable,
