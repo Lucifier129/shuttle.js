@@ -1,14 +1,15 @@
-const NEXT = '@sukkula/next' + Math.random()
-const ERROR = '@sukkula/error' + Math.random()
-const CATCH = '@sukkula/catch' + Math.random()
-const SUSPENSE = '@sukkula/suspense' + Math.random()
+const symbol = typeof Symbol === 'function' ? Symbol : x => x
 
-const EFFECT = '@sukkula/effect' + Math.random()
+const NEXT = symbol('@sukkula/next')
+const ERROR = symbol('@sukkula/error')
+const CATCH = symbol('@sukkula/catch')
+const SUSPENSE = symbol('@sukkula/suspense')
+const EFFECT = symbol('@sukkula/effect')
 
 module.exports = {
-	NEXT,
-	ERROR,
-	CATCH,
-	SUSPENSE,
-	EFFECT
+  NEXT,
+  ERROR,
+  CATCH,
+  SUSPENSE,
+  EFFECT
 }
