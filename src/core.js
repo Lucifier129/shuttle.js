@@ -10,7 +10,7 @@ const {
 } = require('./util')
 
 let env = null
-const getEnv = () => env
+let getEnv = () => env
 
 const resumable = producer => {
   let runing = false

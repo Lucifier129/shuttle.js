@@ -33,10 +33,10 @@ const count$ = usable(props => {
   return count
 })
 
-let trigger = count$.use({
+let counter = count$.use({
   next: count => {
     console.log('count', count)
-    if (count === 20) trigger.complete()
+    if (count === 20) counter.complete()
   },
   complete: count => {
     console.log('last-count', count)
@@ -49,6 +49,6 @@ let trigger = count$.use({
   }
 })
 
-trigger.next({ count: 10 })
+counter.next({ count: 10 })
 
-trigger.catch('xxx')
+counter.catch('xxx')
