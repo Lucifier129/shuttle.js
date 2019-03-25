@@ -58,6 +58,7 @@ let getEnv = () => env
 
 const EMPTY = Symbol('empty')
 const STOP = Symbol('stop')
+const START = Symbol('start')
 
 const referencable = producer => {
   let refList = []
@@ -125,6 +126,7 @@ const resumable = producer => {
     }
     return result
   }
+
   return withResume
 }
 
@@ -171,34 +173,11 @@ const cleanupEffectList = env => {
   }
 }
 
+let isProducing = false
 const create = producer => {
-  let f = pipe(
-    producer,
-    referencable,
-    stoppable,
-    resumable
-  )
-
-  let currentEnv
-
-  return sink => {
+  let source = sink => {
+    let currentEnv
     let isCompleted = false
-    let next = arg => {
-      if (isCompleted) {
-        throw new Error('producer is completed')
-      }
-
-      let value = f(arg)
-      currentEnv = env
-
-      env = null
-
-      if (value === EMPTY) return
-
-      sink.next(value)
-      performEffectList(currentEnv)
-    }
-
     let complete = () => {
       if (isCompleted) return
       isCompleted = true
@@ -206,9 +185,48 @@ const create = producer => {
       if (currentEnv) {
         cleanupEffectList(currentEnv)
       }
+
+      sink.complete()
+    }
+    let connector = arg => {
+      if (isCompleted) {
+        throw new Error('the source is completed')
+      }
+
+      let value = EMPTY
+
+      try {
+        isProducing = true
+        value = producer(arg)
+      } finally {
+        isProducing = false
+      }
+
+      currentEnv = env
+      env = null
+
+      if (value === EMPTY) return
+
+      sink.next(value)
+
+      if (!isCompleted) {
+        performEffectList(currentEnv)
+      }
     }
 
+    let next = pipe(
+      connector,
+      referencable,
+      stoppable,
+      resumable
+    )
+
     return { next, complete }
+  }
+
+  return arg => {
+    if (isProducing) return producer(arg)
+    return source(arg)
   }
 }
 
@@ -216,7 +234,7 @@ let useRef = value => {
   let env = getEnv()
 
   if (!env) {
-    throw new Error('useRef can not use out of usable function')
+    throw new Error('useRef can not be used out of usable function')
   }
 
   let { getRef, setRef, consumeRefIndex } = env
@@ -236,7 +254,7 @@ let useState = value => {
   let env = getEnv()
 
   if (!env) {
-    throw new Error('useState can not use out of usable function')
+    throw new Error('useState can not be used out of usable function')
   }
 
   let { getRef, setRef, consumeRefIndex, resume } = env
@@ -260,7 +278,7 @@ let useMemo = (f, deps) => {
   let env = getEnv()
 
   if (!env) {
-    throw new Error('useMemo can not use out of usable function')
+    throw new Error('useMemo can not be used out of usable function')
   }
 
   let { getRef, setRef, consumeRefIndex } = env
@@ -286,7 +304,7 @@ let useEffect = (f, deps) => {
   let env = getEnv()
 
   if (!env) {
-    throw new Error('useEffect can not use out of usable function')
+    throw new Error('useEffect can not be used out of usable function')
   }
 
   let { getRef, setRef, consumeRefIndex } = env
@@ -314,7 +332,7 @@ const useSuspense = (f, deps) => {
   let env = getEnv()
 
   if (!env) {
-    throw new Error('useSuspense can not use out of usable function')
+    throw new Error('useSuspense can not be used out of usable function')
   }
 
   let { getRef, setRef, consumeRefIndex, stop, resume } = env
@@ -328,7 +346,7 @@ const useSuspense = (f, deps) => {
   if (!ref) {
     let value = f()
 
-    ref = { current: value, deps }
+    ref = { current: EMPTY, deps }
     setRef(ref)
 
     if (isThenble(value)) {
@@ -336,6 +354,10 @@ const useSuspense = (f, deps) => {
         ref.current = result
         resume()
       })
+    } else if (isSource(value)) {
+      value
+    } else {
+      ref.current = value
     }
   }
 
@@ -344,6 +366,12 @@ const useSuspense = (f, deps) => {
   consumeRefIndex()
 
   return ref.current
+}
+
+const useSource = (f, arg) => {
+  let value = useSuspense(() => f(arg), [arg])
+
+  return value
 }
 
 const useCallback = (f, deps) => {
@@ -360,22 +388,6 @@ const useStaticFunction = f => {
 
   return callback
 }
-
-const interval = create(period => {
-  let [count, setCount] = useState(0)
-  let callback = useStaticFunction(() => {
-    setCount(count + 1)
-  })
-
-  useEffect(() => {
-    let timer = setInterval(callback, period)
-    return () => {
-      clearInterval(timer)
-    }
-  }, [period])
-
-  return count
-})
 
 const map = f => source => sink =>
   source({
@@ -404,14 +416,51 @@ const take = max => source => sink => {
   return handler
 }
 
+const scan = (f, acc) => source => sink =>
+  source({
+    ...sink,
+    next: value => sink.next((acc = f(acc, value)))
+  })
+
+const mapTo = value => map(() => value)
+
 const foreach = (next, complete) => source => source({ next, complete })
 
+const useInterval = period => {
+  let [count, setCount] = useState(0)
+  let callback = useStaticFunction(() => {
+    setCount(count + 1)
+  })
+
+  useEffect(() => {
+    let timer = setInterval(callback, period)
+    return () => {
+      clearInterval(timer)
+    }
+  }, [callback, period])
+
+  return count
+}
+
+const useCount = n => {
+  let count = useInterval(n * 100)
+  return count + 1
+}
+
 let handler = pipe(
-  interval,
-  map(n => n + 1),
-  filter(n => n % 2),
+  useCount,
+  create,
+  mapTo(1),
+  scan((acc, n) => acc + n, 0),
   take(10),
-  foreach(n => console.log('next', n), () => console.log('complete'))
+  foreach(
+    n => {
+      console.log('next', n)
+    },
+    () => {
+      console.log('complete')
+    }
+  )
 )
 
-handler.next(100)
+handler.next(1)
