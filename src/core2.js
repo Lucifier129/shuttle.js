@@ -59,6 +59,11 @@ let getEnv = () => env
 const EMPTY = Symbol('empty')
 const STOP = Symbol('stop')
 const START = Symbol('start')
+const COMPLETE = Symbol('complete')
+
+const ACTION = [EMPTY, START, STOP, COMPLETE]
+
+const isAction = obj => !!(obj && ACTION.includes(obj.type))
 
 const referencable = producer => {
   let refList = []
@@ -174,7 +179,7 @@ const cleanupEffectList = env => {
 }
 
 let isProducing = false
-const create = producer => {
+const create = producer => arg => {
   let source = sink => {
     let currentEnv
     let isCompleted = false
@@ -188,10 +193,12 @@ const create = producer => {
 
       sink.complete()
     }
-    let connector = arg => {
+    let connector = (nextArg = arg) => {
       if (isCompleted) {
         throw new Error('the source is completed')
       }
+
+      arg = nextArg
 
       let value = EMPTY
 
@@ -224,10 +231,9 @@ const create = producer => {
     return { next, complete }
   }
 
-  return arg => {
-    if (isProducing) return producer(arg)
-    return source(arg)
-  }
+  source.pipe = pipe.bind(null, source)
+
+  return source
 }
 
 let useRef = value => {
@@ -378,7 +384,7 @@ const useCallback = (f, deps) => {
   return useMemo(() => f, deps)
 }
 
-const useStaticFunction = f => {
+const useHandler = f => {
   let ref = useRef(f)
   let callback = useCallback((...args) => ref.current(...args), [])
 
@@ -424,11 +430,19 @@ const scan = (f, acc) => source => sink =>
 
 const mapTo = value => map(() => value)
 
-const foreach = (next, complete) => source => source({ next, complete })
+const foreach = (next, complete) => source => {
+  let handler = source({ next, complete })
+  handler.next()
+  return handler
+}
+
+const delay = time => new Promise(resolve => setTimeout(resolve, time))
 
 const useInterval = period => {
+  useSuspense(() => delay(period), [period])
+
   let [count, setCount] = useState(0)
-  let callback = useStaticFunction(() => {
+  let callback = useHandler(() => {
     setCount(count + 1)
   })
 
@@ -442,14 +456,10 @@ const useInterval = period => {
   return count
 }
 
-const useCount = n => {
-  let count = useInterval(n * 100)
-  return count + 1
-}
+const interval = create(useInterval)
 
 let handler = pipe(
-  useCount,
-  create,
+  interval(100),
   mapTo(1),
   scan((acc, n) => acc + n, 0),
   take(10),
@@ -462,5 +472,3 @@ let handler = pipe(
     }
   )
 )
-
-handler.next(1)
