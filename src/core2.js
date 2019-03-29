@@ -194,17 +194,22 @@ const create = producer => arg => {
       sink.complete()
     }
     let connector = (nextArg = arg) => {
-      if (isCompleted) {
-        throw new Error('the source is completed')
-      }
-
-      arg = nextArg
+      if (isCompleted) return
 
       let value = EMPTY
+      arg = nextArg
 
       try {
         isProducing = true
         value = producer(arg)
+      } catch (error) {
+        if (!(error instanceof Error)) throw error
+
+        if (sink.error) {
+          return sink.error(error)
+        } else {
+          throw error
+        }
       } finally {
         isProducing = false
       }
@@ -334,6 +339,19 @@ let useEffect = (f, deps) => {
   consumeRefIndex()
 }
 
+const resumeIfNeed = (f, ref, resume) => {
+  let value = f()
+
+  if (isThenble(value)) {
+    value.then(result => {
+      ref.current = result
+      resume()
+    })
+  } else {
+    ref.current = value
+  }
+}
+
 const useSuspense = (f, deps) => {
   let env = getEnv()
 
@@ -350,21 +368,9 @@ const useSuspense = (f, deps) => {
   }
 
   if (!ref) {
-    let value = f()
-
     ref = { current: EMPTY, deps }
     setRef(ref)
-
-    if (isThenble(value)) {
-      value.then(result => {
-        ref.current = result
-        resume()
-      })
-    } else if (isSource(value)) {
-      value
-    } else {
-      ref.current = value
-    }
+    resumeIfNeed(f, ref, resume)
   }
 
   if (ref.current === EMPTY) stop()
@@ -384,7 +390,7 @@ const useCallback = (f, deps) => {
   return useMemo(() => f, deps)
 }
 
-const useHandler = f => {
+const useFunction = f => {
   let ref = useRef(f)
   let callback = useCallback((...args) => ref.current(...args), [])
 
@@ -442,21 +448,25 @@ const useInterval = period => {
   useSuspense(() => delay(period), [period])
 
   let [count, setCount] = useState(0)
-  let callback = useHandler(() => {
+  let fn = useFunction(() => {
     setCount(count + 1)
   })
 
   useEffect(() => {
-    let timer = setInterval(callback, period)
+    let timer = setInterval(fn, period)
     return () => {
       clearInterval(timer)
     }
-  }, [callback, period])
+  }, [fn, period])
 
   return count
 }
 
 const interval = create(useInterval)
+
+const pullable = create(({ start, end }) => {
+  let handler
+})
 
 let handler = pipe(
   interval(100),
