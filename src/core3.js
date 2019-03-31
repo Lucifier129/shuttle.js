@@ -2,157 +2,140 @@ const identity = x => x
 const noop = () => {}
 const pipe = (...args) => args.reduce((a, f) => f(a))
 
-const empty = () => sink => {
-  let complete = () => {
-    sink.complete()
+const create = producer => sink => {
+  let isFinish = false
+
+  let wrap = f => a => {
+    if (isFinish) return
+    if (f) f(a)
   }
-  let next = () => {
-    complete()
-  }
-  return { next, complete }
+
+  let consume = wrap(() => {
+    if (handler.consume) handler.consume()
+  })
+
+  let finish = wrap(() => {
+    isFinish = true
+    if (handler.finish) handler.finish()
+    if (sink.complete) sink.complete(true)
+  })
+
+  let complete = wrap(() => {
+    isFinish = true
+    if (handler.finish) handler.finish()
+    if (sink.complete) sink.complete(false)
+  })
+
+  let handler = producer({
+    next: wrap(sink.next),
+    complete: complete
+  })
+
+  return { consume, finish }
 }
 
-const of = (...valueList) => sink => {
-  let index = 0
-  let next = () => {
-    if (index === valueList.length) {
-      complete()
-    } else {
-      sink.next(valueList[index++])
+const empty = () =>
+  create(sink => {
+    return { consume: sink.complete }
+  })
+
+const of = (...valueList) =>
+  create(sink => {
+    let index = 0
+    let consume = () => {
+      if (index === valueList.length) {
+        sink.complete()
+      } else {
+        sink.next(valueList[index++])
+        if (index === valueList.length) {
+          sink.complete()
+        }
+      }
     }
-  }
-  let complete = () => {
-    sink.complete()
-  }
 
-  return { next, complete }
-}
+    return { consume }
+  })
 
 const unit = value => of(value)
 
-// const map = f => source => sink =>
-//   source({
-//     ...sink,
-//     next: value => sink.next(f(value))
-//   })
+const map = f => source =>
+  create(sink =>
+    source({
+      ...sink,
+      next: value => sink.next(f(value))
+    })
+  )
 
-// const concat = source => sink => {
-//   let list = []
-//   let isComplete = false
-//   let handler = source({
-//     next: value => {
-//       list.push(value)
-//       consume()
-//     },
-//     complete: () => {
-//       isComplete = true
-//       if (!innerHandler && !list.length) {
-//         sink.complete()
-//       }
-//     }
-//   })
-//   let innerHandler = null
-//   let consume = () => {
-//     if (!list.length && isComplete) {
-//       sink.complete()
-//       return
-//     }
-//     if (!list.length) return
-//     let currentSource = list.shift()
-//     innerHandler = currentSource({
-//       next: sink.next,
-//       complete: () => {
-//         innerHandler = null
-//         consume()
-//       }
-//     })
-//     innerHandler.next()
-//   }
-//   let next = () => {
-//     if (innerHandler) {
-//       innerHandler.next()
-//     } else {
-//       handler.next()
-//     }
-//   }
-//   let complete = () => {
-//     list.length = 0
-//     if (innerHandler) {
-//       let innerComplete = innerHandler.complete
-//       innerHandler = null
-//       innerComplete()
-//     }
-//     handler.complete()
-//   }
-//   return { next, complete }
-// }
+const concat = source =>
+  create(sink => {
+    let isComplete = false
+    let isFinish = false
+    let innerSourceList = []
+    let innerHandler = null
+    let handler = source({
+      next: value => {
+        innerSourceList.push(value)
 
-// const bind = f => source =>
-//   pipe(
-//     source,
-//     map(f),
-//     concat
-//   )
+        if (!innerHandler) {
+          let innerSource = innerSourceList.shift()
+          innerHandler = innerSource(innerSink)
+          innerHandler.consume()
+        }
+      },
+      complete: finished => {
+        isComplete = true
+        isFinish = finished
 
-const bind = f => source => sink => {
-  let innerHandler = null
-  let next = () => {
-    if (isComplete) return
-    if (innerHandler) {
-      innerHandler.next()
-    } else {
-      handler.next()
-    }
-  }
-  let complete = () => {
-    valueList.length = 0
-    if (innerHandler) {
-      let innerComplete = innerHandler.complete
-      innerHandler = null
-      innerComplete()
-    }
-    if (!isComplete) {
-      handler.complete()
-    }
-  }
-  let consumeInnerSource = () => {
-    if (valueList.length === 0 || innerHandler) return
+        if (isFinish) {
+          if (innerHandler) innerHandler.finish()
+          sink.complete()
+        } else {
+          if (!innerSourceList.length && !innerHandler) {
+            sink.complete()
+          }
+        }
+      }
+    })
 
-    let value = valueList.shift()
-    let innerSource = f(value)
     let innerSink = {
       next: sink.next,
       complete: () => {
         innerHandler = null
-        if (valueList.length > 0) {
-          consumeInnerSource()
+        if (isFinish) return
+
+        if (innerSourceList.length) {
+          let innerSource = innerSourceList.shift()
+          innerHandler = innerSource(innerSink)
+          innerHandler.consume()
         } else if (isComplete) {
           sink.complete()
         } else {
-          handler.next()
+          handler.consume()
         }
       }
     }
-    innerHandler = innerSource(innerSink)
-    innerHandler.next()
-  }
-  let valueList = []
-  let isComplete = false
-  let handler = source({
-    next: value => {
-      valueList.push(value)
-      consumeInnerSource()
-    },
-    complete: () => {
-      isComplete = true
-      if (!valueList.length && !innerHandler) {
-        sink.complete()
+
+    let consume = () => {
+      if (innerHandler) {
+        innerHandler.consume()
+      } else {
+        handler.consume()
       }
     }
+
+    let finish = () => {
+      handler.finish()
+    }
+
+    return { consume, finish }
   })
 
-  return { next, complete }
-}
+const bind = f => source =>
+  pipe(
+    source,
+    map(f),
+    concat
+  )
 
 const apply = (sourceF, sourceA) =>
   pipe(
@@ -164,71 +147,80 @@ const apply = (sourceF, sourceA) =>
       )
     )
   )
-const map = f => source => apply(unit(f), source)
 
 const applyAll = (...args) => args.reduce(apply)
 
 const sequence = (sourceList = []) =>
   pipe(
     of(...sourceList),
-    bind(identity)
+    concat
   )
 
-const take = max => source => sink => {
-  let count = 0
-  let next = () => {
-    if (count >= max || !max) {
-      handler.complete()
-    } else {
-      handler.next()
-    }
-  }
-  let handler = source({
-    ...sink,
-    next: value => {
-      count += 1
-      sink.next(value)
+const take = max => source =>
+  create(sink => {
+    let count = 0
+
+    let handler = source({
+      ...sink,
+      next: value => {
+        count += 1
+        if (count <= max) {
+          sink.next(value)
+          if (count === max) handler.finish()
+        } else {
+          handler.finish()
+        }
+      }
+    })
+
+    let consume = () => {
       if (count >= max) {
-        handler.complete()
-      }
-    }
-  })
-  return { next, complete: handler.complete }
-}
-
-const filter = predicate => source => sink => {
-  let handler = source({
-    ...sink,
-    next: value => {
-      if (predicate(value)) {
-        sink.next(value)
+        handler.finish()
       } else {
-        handler.next()
+        handler.consume()
       }
     }
-  })
-  return handler
-}
 
-const scan = (f, acc) => source => sink =>
-  source({
-    ...sink,
-    next: value => {
-      acc = f(acc, value)
-      sink.next(acc)
-    }
+    return { consume, finish: handler.finish }
   })
+
+const filter = predicate => source =>
+  create(sink => {
+    let handler = source({
+      ...sink,
+      next: value => {
+        if (predicate(value)) {
+          sink.next(value)
+        } else {
+          handler.consume()
+        }
+      }
+    })
+    return handler
+  })
+
+const scan = (f, acc) => source =>
+  create(sink =>
+    source({
+      ...sink,
+      next: value => {
+        acc = f(acc, value)
+        sink.next(acc)
+      }
+    })
+  )
 
 const foreach = (next = noop, complete = noop) => source => {
   let handler = source({
     next: value => {
       next(value)
-      handler.next()
+      handler.consume()
     },
     complete
   })
-  handler.next()
-  return handler.complete
+
+  handler.consume()
+  return handler.finish
 }
 
 const log = foreach(
@@ -236,36 +228,33 @@ const log = foreach(
     console.log('next', value)
   },
   () => {
-    debugger
     console.log('complete')
   }
 )
 
-const interval = period => sink => {
-  let count = 0
-  let timer = setInterval(() => sink.next(count++), period)
-  let next = () => {}
-  let complete = () => {
-    clearInterval(timer)
-    sink.complete()
-  }
-  return { next, complete }
-}
-
-const range = (start, end) => sink => {
-  let count = start
-  let next = () => {
-    if (count <= end) {
-      sink.next(count++)
-    } else {
-      complete()
+const interval = period =>
+  create(sink => {
+    let count = 0
+    let timer = setInterval(() => sink.next(count++), period)
+    let finish = () => {
+      clearInterval(timer)
     }
-  }
-  let complete = () => {
-    sink.complete()
-  }
-  return { next, complete }
-}
+    return { finish }
+  })
+
+const range = (start, end) =>
+  create(sink => {
+    let count = start
+    let consume = () => {
+      if (count <= end) {
+        sink.next(count++)
+        if (count === end) sink.complete()
+      } else {
+        sink.complete()
+      }
+    }
+    return { consume }
+  })
 
 // pullable + pushable
 let source1 = pipe(
@@ -305,13 +294,13 @@ let source4 = pipe(
 
 let sourceList = [
   of('0-1-2-0-1-2-0-1-2'),
-  source1
-  // of('0-0-1-0-1-2'),
-  // source2,
-  // of('0-1-2-0-1-2-0-1-2'),
-  // source3,
-  // of('0-1-0-1-2-0-1-2-3'),
-  // source4
+  source1,
+  of('0-0-1-0-1-2'),
+  source2,
+  of('0-1-2-0-1-2-0-1-2'),
+  source3,
+  of('0-1-0-1-2-0-1-2-3'),
+  source4
 ]
 
 pipe(
